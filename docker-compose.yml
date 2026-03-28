@@ -1,0 +1,34 @@
+services:
+  gateway:
+    build:
+      context: ./gateway
+    ports:
+      - "8080:8000"
+    depends_on:
+      - catalog
+      - orders
+      - pricing
+    environment:
+      - CATALOG_URL=http://catalog:8000
+      - ORDERS_URL=http://orders:8000
+      - PRICING_URL=http://pricing:8000
+
+  catalog:
+    build:
+      context: ./services/catalog
+    # si tu servicio usa otro puerto o comando, reemplaza:
+    # command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - '8001:8000'
+
+  orders:
+    build:
+      context: ./services/orders
+    ports:
+      - '8002:8000'
+
+  pricing:
+    build:
+      context: ./services/pricing
+    ports:
+      - '8003:8000'
