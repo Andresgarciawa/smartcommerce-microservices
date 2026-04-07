@@ -1,9 +1,17 @@
+# app/domain/entities.py
 from enum import Enum
+from dataclasses import dataclass
+from datetime import datetime
 
 class UserRole(str, Enum):
     ADMIN = "admin"
     USER = "user"
 
-# Aquí iría la lógica de "política mínima de credenciales"
-def validate_password_strength(password: str) -> bool:
-    return len(password) >= 8 and any(char.isdigit() for char in password)
+@dataclass
+class User:
+    id: int
+    email: str
+    password_hash: str
+    role: UserRole
+    is_active: bool = False  # Para el 2FA
+    created_at: datetime = datetime.now()
