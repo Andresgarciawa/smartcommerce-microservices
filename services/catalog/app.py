@@ -5,7 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import (
     BookCreate,
+    BookEnrich,
     BookResponse,
+    BookUpdate,
     CatalogSummaryResponse,
     CategoryCreate,
     CategoryResponse,
@@ -67,8 +69,26 @@ def get_category(category_id: str) -> dict[str, object]:
 
 
 @app.get("/api/catalog/books", response_model=list[BookResponse])
-def list_books() -> list[dict[str, object]]:
-    return service.list_books()
+def list_books(
+    q: str | None = None,
+    category_id: str | None = None,
+    published: bool | None = None,
+    enriched: bool | None = None,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict[str, object]]:
+    return service.list_books(
+        query_text=q,
+        category_id=category_id,
+        published=published,
+        enriched=enriched,
+        year_from=year_from,
+        year_to=year_to,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @app.post(
@@ -89,6 +109,30 @@ def get_book(book_id: str) -> dict[str, object]:
         return service.get_book(book_id)
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.put("/api/catalog/books/{book_id}", response_model=BookResponse)
+def update_book(book_id: str, payload: BookUpdate) -> dict[str, object]:
+    try:
+        return service.update_book(book_id, payload.model_dump(exclude_unset=True))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/catalog/books/{book_id}/publish", response_model=BookResponse)
+def publish_book(book_id: str) -> dict[str, object]:
+    try:
+        return service.publish_book(book_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/catalog/books/{book_id}/enrich", response_model=BookResponse)
+def enrich_book(book_id: str, payload: BookEnrich) -> dict[str, object]:
+    try:
+        return service.enrich_book(book_id, payload.model_dump(exclude_unset=True))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.delete("/api/catalog/categories/{category_id}", response_model=DeleteResponse)

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
+import os
 from dataclasses import dataclass
-from pathlib import Path
 
-from catalog_service.database import initialize_database
-from catalog_service.service import CatalogService
+from services.catalog.database import initialize_database
+from services.catalog.service import CatalogService
 
 
 @dataclass
@@ -30,17 +29,16 @@ class FakeInventoryClient:
 
 class CatalogServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.db_path = Path(self.temp_dir.name) / "catalog.db"
-        initialize_database(self.db_path)
+        if os.getenv("CATALOG_TEST_DB", "0") != "1":
+            self.skipTest("CATALOG_TEST_DB=1 requerido para pruebas de integracion con PostgreSQL.")
+        initialize_database()
         self.inventory_client = FakeInventoryClient()
         self.service = CatalogService(
-            self.db_path,
             inventory_client=self.inventory_client,
         )
 
     def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+        pass
 
     def test_create_category_and_book_updates_summary(self) -> None:
         category = self.service.create_category("Novela", "Ficcion narrativa")

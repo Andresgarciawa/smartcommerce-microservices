@@ -45,6 +45,27 @@ SCHEMA = """
          CREATE INDEX IF NOT EXISTS idx_books_published ON books(published_flag); \
          """
 
+MIGRATIONS = """
+             ALTER TABLE books ADD COLUMN IF NOT EXISTS suggested_price NUMERIC;
+             ALTER TABLE books ADD COLUMN IF NOT EXISTS currency TEXT;
+             ALTER TABLE books ADD COLUMN IF NOT EXISTS price_source TEXT;
+             ALTER TABLE books ADD COLUMN IF NOT EXISTS price_updated_at TEXT;
+
+             CREATE TABLE IF NOT EXISTS book_change_log (
+                                                           id TEXT PRIMARY KEY,
+                                                           book_id TEXT NOT NULL,
+                                                           field_name TEXT NOT NULL,
+                                                           old_value TEXT,
+                                                           new_value TEXT,
+                                                           source TEXT NOT NULL,
+                                                           created_at TEXT NOT NULL,
+                                                           FOREIGN KEY (book_id) REFERENCES books(id)
+             );
+
+             CREATE INDEX IF NOT EXISTS idx_change_log_book ON book_change_log(book_id);
+             CREATE INDEX IF NOT EXISTS idx_change_log_created ON book_change_log(created_at);
+             """
+
 @contextmanager
 def get_connection():
     connection = psycopg2.connect(**get_db_config())
@@ -61,4 +82,5 @@ def initialize_database() -> None:
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(SCHEMA)
+            cursor.execute(MIGRATIONS)
         connection.commit()
