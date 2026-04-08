@@ -1,0 +1,434 @@
+from __future__ import annotations
+
+import csv
+import io
+import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .catalog_client import CatalogClient
+try:
+    from .database import DEFAULT_DB_PATH, get_connection, initialize_database
+except ImportError:
+    from database import DEFAULT_DB_PATH, get_connection, initialize_database
+
+REQUIRED_COLUMNS = {
+    "external_code",
+    "book_reference",
+    "quantity_available",
+    "quantity_reserved",
+    "condition",
+}
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def row_to_dict(row: Any) -> dict[str, Any]:
+    return {key: row[key] for key in row.keys()}
+
+
+class InventoryService:
+    def __init__(
+        self,
+        db_path: Path = DEFAULT_DB_PATH,
+        catalog_client: CatalogClient | None = None,
+    ) -> None:
+        self.db_path = db_path
+        initialize_database(self.db_path)
+        self.catalog_client = catalog_client or CatalogClient(
+            os.getenv("CATALOG_SERVICE_URL", "http://127.0.0.1:8001")
+        )
+
+    def import_csv(self, file_name: str, csv_content: str) -> dict[str, Any]:
+        if not file_name.strip():
+            raise ValueError("file_name es obligatorio.")
+
+        if not csv_content.strip():
+            raise ValueError("csv_content es obligatorio.")
+
+        batch_id = self._create_batch(file_name=file_name.strip())
+
+        try:
+            processed_rows, valid_rows, invalid_rows = self._process_rows(
+                batch_id=batch_id,
+                csv_content=csv_content,
+            )
+            status = "completed_with_errors" if invalid_rows else "completed"
+        except ValueError as error:
+            self._record_error(
+                batch_id=batch_id,
+                row_number=0,
+                error_type="schema_error",
+                message=str(error),
+            )
+            processed_rows = 0
+            valid_rows = 0
+            invalid_rows = 1
+            status = "failed"
+
+        self._update_batch(
+            batch_id=batch_id,
+            processed_rows=processed_rows,
+            valid_rows=valid_rows,
+            invalid_rows=invalid_rows,
+            status=status,
+        )
+
+        return {
+            "batch": self.get_batch(batch_id),
+            "errors": self.get_batch_errors(batch_id),
+        }
+
+    def list_items(self) -> list[dict[str, Any]]:
+        query = """
+        SELECT
+            id,
+            external_code,
+            book_reference,
+            quantity_available,
+            quantity_reserved,
+            condition,
+            defects,
+            observations,
+            import_batch_id
+        FROM inventory_items
+        ORDER BY updated_at DESC, external_code ASC
+        """
+
+        with get_connection(self.db_path) as connection:
+            rows = connection.execute(query).fetchall()
+
+        return [row_to_dict(row) for row in rows]
+
+    def list_batches(self) -> list[dict[str, Any]]:
+        query = """
+        SELECT
+            id,
+            file_name,
+            upload_date,
+            processed_rows,
+            valid_rows,
+            invalid_rows,
+            status
+        FROM import_batches
+        ORDER BY upload_date DESC
+        """
+
+        with get_connection(self.db_path) as connection:
+            rows = connection.execute(query).fetchall()
+
+        return [row_to_dict(row) for row in rows]
+
+    def get_batch(self, batch_id: str) -> dict[str, Any]:
+        query = """
+        SELECT
+            id,
+            file_name,
+            upload_date,
+            processed_rows,
+            valid_rows,
+            invalid_rows,
+            status
+        FROM import_batches
+        WHERE id = ?
+        """
+
+        with get_connection(self.db_path) as connection:
+            row = connection.execute(query, (batch_id,)).fetchone()
+
+        if row is None:
+            raise ValueError("El lote solicitado no existe.")
+
+        return row_to_dict(row)
+
+    def get_batch_errors(self, batch_id: str) -> list[dict[str, Any]]:
+        query = """
+        SELECT
+            id,
+            batch_id,
+            row_number,
+            error_type,
+            message
+        FROM import_errors
+        WHERE batch_id = ?
+        ORDER BY row_number ASC, id ASC
+        """
+
+        with get_connection(self.db_path) as connection:
+            rows = connection.execute(query, (batch_id,)).fetchall()
+
+        return [row_to_dict(row) for row in rows]
+
+    def get_summary(self) -> dict[str, int]:
+        inventory_query = """
+        SELECT
+            COUNT(*) AS total_items,
+            COALESCE(SUM(quantity_available), 0) AS total_units_available,
+            COALESCE(SUM(quantity_reserved), 0) AS total_units_reserved
+        FROM inventory_items
+        """
+
+        batch_query = """
+        SELECT
+            COUNT(*) AS total_batches,
+            COALESCE(SUM(CASE WHEN invalid_rows > 0 OR status = 'failed' THEN 1 ELSE 0 END), 0) AS batches_with_errors
+        FROM import_batches
+        """
+
+        with get_connection(self.db_path) as connection:
+            inventory_row = connection.execute(inventory_query).fetchone()
+            batch_row = connection.execute(batch_query).fetchone()
+
+        return {
+            "total_items": int(inventory_row["total_items"]),
+            "total_units_available": int(inventory_row["total_units_available"]),
+            "total_units_reserved": int(inventory_row["total_units_reserved"]),
+            "total_batches": int(batch_row["total_batches"]),
+            "batches_with_errors": int(batch_row["batches_with_errors"]),
+        }
+
+    def delete_item(self, item_id: str) -> None:
+        query = "DELETE FROM inventory_items WHERE id = ?"
+
+        with get_connection(self.db_path) as connection:
+            cursor = connection.execute(query, (item_id,))
+            connection.commit()
+
+        if cursor.rowcount == 0:
+            raise ValueError("El item de inventario solicitado no existe.")
+
+    def delete_batch(self, batch_id: str) -> None:
+        self.get_batch(batch_id)
+
+        with get_connection(self.db_path) as connection:
+            connection.execute(
+                "DELETE FROM inventory_items WHERE import_batch_id = ?",
+                (batch_id,),
+            )
+            connection.execute("DELETE FROM import_errors WHERE batch_id = ?", (batch_id,))
+            connection.execute("DELETE FROM import_batches WHERE id = ?", (batch_id,))
+            connection.commit()
+
+    def _create_batch(self, file_name: str) -> str:
+        batch_id = str(uuid.uuid4())
+        query = """
+        INSERT INTO import_batches (
+            id,
+            file_name,
+            upload_date,
+            processed_rows,
+            valid_rows,
+            invalid_rows,
+            status
+        ) VALUES (?, ?, ?, 0, 0, 0, 'processing')
+        """
+
+        with get_connection(self.db_path) as connection:
+            connection.execute(query, (batch_id, file_name, utc_now_iso()))
+            connection.commit()
+
+        return batch_id
+
+    def _update_batch(
+        self,
+        batch_id: str,
+        processed_rows: int,
+        valid_rows: int,
+        invalid_rows: int,
+        status: str,
+    ) -> None:
+        query = """
+        UPDATE import_batches
+        SET processed_rows = ?,
+            valid_rows = ?,
+            invalid_rows = ?,
+            status = ?
+        WHERE id = ?
+        """
+
+        with get_connection(self.db_path) as connection:
+            connection.execute(
+                query,
+                (processed_rows, valid_rows, invalid_rows, status, batch_id),
+            )
+            connection.commit()
+
+    def _process_rows(self, batch_id: str, csv_content: str) -> tuple[int, int, int]:
+        reader = csv.DictReader(io.StringIO(csv_content))
+
+        if not reader.fieldnames:
+            raise ValueError("El CSV debe incluir una fila de encabezados.")
+
+        normalized_headers = {
+            self._normalize_header(field_name) for field_name in reader.fieldnames
+        }
+        missing_columns = REQUIRED_COLUMNS - normalized_headers
+
+        if missing_columns:
+            missing = ", ".join(sorted(missing_columns))
+            raise ValueError(f"Faltan columnas requeridas: {missing}.")
+
+        processed_rows = 0
+        valid_rows = 0
+        invalid_rows = 0
+
+        for row_number, raw_row in enumerate(reader, start=2):
+            processed_rows += 1
+            normalized_row = self._normalize_row(raw_row)
+
+            try:
+                valid_item = self._validate_row(normalized_row, row_number)
+                self._upsert_inventory_item(batch_id, valid_item)
+                valid_rows += 1
+            except ValueError as error:
+                invalid_rows += 1
+                self._record_error(
+                    batch_id=batch_id,
+                    row_number=row_number,
+                    error_type="validation_error",
+                    message=str(error),
+                )
+
+        return processed_rows, valid_rows, invalid_rows
+
+    def _validate_row(self, row: dict[str, str], row_number: int) -> dict[str, Any]:
+        external_code = row.get("external_code", "").strip()
+        book_reference = row.get("book_reference", "").strip()
+        condition = row.get("condition", "").strip()
+        defects = row.get("defects", "").strip()
+        observations = row.get("observations", "").strip()
+
+        if not external_code:
+            raise ValueError(f"La fila {row_number} no tiene external_code.")
+
+        if not book_reference:
+            raise ValueError(f"La fila {row_number} no tiene book_reference.")
+
+        lookup = self.catalog_client.get_book(book_reference)
+        if not lookup.reachable:
+            raise ValueError(
+                f"La fila {row_number} no pudo validarse contra Catalog Service. {lookup.error_message}"
+            )
+        if not lookup.exists:
+            raise ValueError(
+                f"La fila {row_number} referencia un libro inexistente en Catalog Service."
+            )
+
+        if not condition:
+            raise ValueError(f"La fila {row_number} no tiene condition.")
+
+        quantity_available = self._parse_non_negative_int(
+            row.get("quantity_available", ""),
+            field_name="quantity_available",
+            row_number=row_number,
+        )
+        quantity_reserved = self._parse_non_negative_int(
+            row.get("quantity_reserved", ""),
+            field_name="quantity_reserved",
+            row_number=row_number,
+        )
+
+        if quantity_reserved > quantity_available:
+            raise ValueError(
+                f"La fila {row_number} tiene quantity_reserved mayor que quantity_available."
+            )
+
+        return {
+            "external_code": external_code,
+            "book_reference": book_reference,
+            "quantity_available": quantity_available,
+            "quantity_reserved": quantity_reserved,
+            "condition": condition,
+            "defects": defects,
+            "observations": observations,
+        }
+
+    def _upsert_inventory_item(self, batch_id: str, item: dict[str, Any]) -> None:
+        item_id = str(uuid.uuid4())
+        query = """
+        INSERT INTO inventory_items (
+            id,
+            external_code,
+            book_reference,
+            quantity_available,
+            quantity_reserved,
+            condition,
+            defects,
+            observations,
+            import_batch_id,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(external_code) DO UPDATE SET
+            book_reference = excluded.book_reference,
+            quantity_available = excluded.quantity_available,
+            quantity_reserved = excluded.quantity_reserved,
+            condition = excluded.condition,
+            defects = excluded.defects,
+            observations = excluded.observations,
+            import_batch_id = excluded.import_batch_id,
+            updated_at = excluded.updated_at
+        """
+
+        with get_connection(self.db_path) as connection:
+            connection.execute(
+                query,
+                (
+                    item_id,
+                    item["external_code"],
+                    item["book_reference"],
+                    item["quantity_available"],
+                    item["quantity_reserved"],
+                    item["condition"],
+                    item["defects"],
+                    item["observations"],
+                    batch_id,
+                    utc_now_iso(),
+                ),
+            )
+            connection.commit()
+
+    def _record_error(
+        self, batch_id: str, row_number: int, error_type: str, message: str
+    ) -> None:
+        query = """
+        INSERT INTO import_errors (id, batch_id, row_number, error_type, message)
+        VALUES (?, ?, ?, ?, ?)
+        """
+
+        with get_connection(self.db_path) as connection:
+            connection.execute(
+                query,
+                (str(uuid.uuid4()), batch_id, row_number, error_type, message),
+            )
+            connection.commit()
+
+    @staticmethod
+    def _normalize_header(value: str | None) -> str:
+        return (value or "").strip().lower()
+
+    def _normalize_row(self, row: dict[str | None, str | None]) -> dict[str, str]:
+        return {
+            self._normalize_header(key): (value or "").strip()
+            for key, value in row.items()
+            if key is not None
+        }
+
+    @staticmethod
+    def _parse_non_negative_int(value: str, field_name: str, row_number: int) -> int:
+        try:
+            parsed = int(str(value).strip())
+        except ValueError as error:
+            raise ValueError(
+                f"La fila {row_number} tiene {field_name} invalido."
+            ) from error
+
+        if parsed < 0:
+            raise ValueError(
+                f"La fila {row_number} tiene {field_name} negativo."
+            )
+
+        return parsed

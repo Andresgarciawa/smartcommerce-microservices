@@ -20,7 +20,6 @@ app.include_router(catalog.router, prefix="/catalog", tags=["catalog"])
 app.include_router(orders.router, prefix="/orders", tags=["orders"])
 app.include_router(pricing.router, prefix="/pricing", tags=["pricing"])
 
-
 @app.get("/health", tags=["health"])
 async def health():
     return {"status": "UP"}
