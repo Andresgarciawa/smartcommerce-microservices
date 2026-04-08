@@ -249,12 +249,3 @@ class CatalogService:
             index[ref]["quantity_reserved_total"] += int(item.get("quantity_reserved", 0))
             index[ref]["inventory_records"] += 1
         return index
-```
-
----
-
-### `requirements.txt`
-```
-fastapi>=0.115,<1.0
-uvicorn[standard]>=0.30,<1.0
-psycopg2-binary>=2.9,<3.0
