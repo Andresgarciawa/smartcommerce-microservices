@@ -366,7 +366,7 @@ export const ConfigAdmin: React.FC = () => {
           <div className="audit-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="audit-header">
               <h3>Change History: {selectedConfigKey}</h3>
-              <button classame="close-btn" onClick={() => setShowAuditLog(false)}>
+              <button className="close-btn" onClick={() => setShowAuditLog(false)}>
                 ×
               </button>
             </div>
