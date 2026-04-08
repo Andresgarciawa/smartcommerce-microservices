@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import tempfile
 import textwrap
 import unittest
+import os
 from dataclasses import dataclass
-from pathlib import Path
 
 from services.inventory.catalog_client import CatalogBookLookup
 from services.inventory.database import initialize_database
@@ -36,16 +35,15 @@ class FakeCatalogClient:
 
 class InventoryServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.db_path = Path(self.temp_dir.name) / "inventory.db"
-        initialize_database(self.db_path)
+        if os.getenv("INVENTORY_TEST_DB", "0") != "1":
+            self.skipTest("INVENTORY_TEST_DB=1 requerido para pruebas de integracion con PostgreSQL.")
+        initialize_database()
         self.service = InventoryService(
-            self.db_path,
             catalog_client=FakeCatalogClient({"BOOK-001", "BOOK-002"}),
         )
 
     def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+        pass
 
     def test_import_csv_persists_valid_rows_and_tracks_errors(self) -> None:
         csv_content = textwrap.dedent(

@@ -20,8 +20,15 @@ services:
       - '8000:8000'
     environment:
       CATALOG_SERVICE_URL: http://catalog-service:8001
+      DB_HOST: inventory-db
+      DB_PORT: 5432
+      DB_NAME: inventory_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
     volumes:
       - inventory_data:/app/inventory/data
+    depends_on:
+      - inventory-db
 
   catalog-service:
     build:
@@ -49,6 +56,17 @@ services:
       - '5432:5432'
     volumes:
       - catalog_pg_data:/var/lib/postgresql/data
+
+  inventory-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: inventory_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5435:5432'
+    volumes:
+      - inventory_pg_data:/var/lib/postgresql/data
 
   gateway:
     build:
@@ -136,4 +154,5 @@ services:
 volumes:
   inventory_data:
   catalog_pg_data:
+  inventory_pg_data:
   config_pg_data:

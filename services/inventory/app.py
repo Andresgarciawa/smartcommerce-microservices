@@ -43,8 +43,22 @@ def get_summary() -> dict[str, int]:
 
 
 @app.get("/api/inventory/items", response_model=list[InventoryItemResponse])
-def list_items() -> list[dict[str, object]]:
-    return service.list_items()
+def list_items(
+    book_reference: str | None = None,
+    condition: str | None = None,
+    import_batch_id: str | None = None,
+    available_only: bool | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, object]]:
+    return service.list_items(
+        book_reference=book_reference,
+        condition=condition,
+        import_batch_id=import_batch_id,
+        available_only=available_only,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @app.get("/api/inventory/batches", response_model=list[ImportBatchResponse])

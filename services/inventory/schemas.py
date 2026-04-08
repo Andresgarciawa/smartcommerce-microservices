@@ -9,6 +9,7 @@ class InventoryItemResponse(BaseModel):
     book_reference: str
     quantity_available: int
     quantity_reserved: int
+    available_flag: bool
     condition: str
     defects: str
     observations: str

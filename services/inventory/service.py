@@ -5,14 +5,10 @@ import io
 import os
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from .catalog_client import CatalogClient
-try:
-    from .database import DEFAULT_DB_PATH, get_connection, initialize_database
-except ImportError:
-    from database import DEFAULT_DB_PATH, get_connection, initialize_database
+from .database import get_connection, initialize_database
 
 REQUIRED_COLUMNS = {
     "external_code",
@@ -27,18 +23,17 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def row_to_dict(row: Any) -> dict[str, Any]:
-    return {key: row[key] for key in row.keys()}
+def row_to_dict(cursor, row) -> dict[str, Any]:
+    columns = [desc[0] for desc in cursor.description]
+    return dict(zip(columns, row))
 
 
 class InventoryService:
     def __init__(
         self,
-        db_path: Path = DEFAULT_DB_PATH,
         catalog_client: CatalogClient | None = None,
     ) -> None:
-        self.db_path = db_path
-        initialize_database(self.db_path)
+        initialize_database()
         self.catalog_client = catalog_client or CatalogClient(
             os.getenv("CATALOG_SERVICE_URL", "http://127.0.0.1:8001")
         )
@@ -83,7 +78,32 @@ class InventoryService:
             "errors": self.get_batch_errors(batch_id),
         }
 
-    def list_items(self) -> list[dict[str, Any]]:
+    def list_items(
+        self,
+        book_reference: str | None = None,
+        condition: str | None = None,
+        import_batch_id: str | None = None,
+        available_only: bool | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 500))
+        offset = max(0, offset)
+        filters = []
+        params: list[Any] = []
+        if book_reference:
+            filters.append("book_reference = %s")
+            params.append(book_reference)
+        if condition:
+            filters.append("condition = %s")
+            params.append(condition)
+        if import_batch_id:
+            filters.append("import_batch_id = %s")
+            params.append(import_batch_id)
+        if available_only is True:
+            filters.append("quantity_available > 0")
+
+        where_clause = "WHERE " + " AND ".join(filters) if filters else ""
         query = """
         SELECT
             id,
@@ -96,13 +116,23 @@ class InventoryService:
             observations,
             import_batch_id
         FROM inventory_items
+        {where_clause}
         ORDER BY updated_at DESC, external_code ASC
+        LIMIT %s OFFSET %s
         """
+        params.extend([limit, offset])
+        query = query.format(where_clause=where_clause)
 
-        with get_connection(self.db_path) as connection:
-            rows = connection.execute(query).fetchall()
-
-        return [row_to_dict(row) for row in rows]
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                items = []
+                for row in rows:
+                    data = row_to_dict(cursor, row)
+                    data["available_flag"] = data.get("quantity_available", 0) > 0
+                    items.append(data)
+                return items
 
     def list_batches(self) -> list[dict[str, Any]]:
         query = """
@@ -118,10 +148,11 @@ class InventoryService:
         ORDER BY upload_date DESC
         """
 
-        with get_connection(self.db_path) as connection:
-            rows = connection.execute(query).fetchall()
-
-        return [row_to_dict(row) for row in rows]
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query)
+                rows = cursor.fetchall()
+                return [row_to_dict(cursor, row) for row in rows]
 
     def get_batch(self, batch_id: str) -> dict[str, Any]:
         query = """
@@ -137,13 +168,15 @@ class InventoryService:
         WHERE id = ?
         """
 
-        with get_connection(self.db_path) as connection:
-            row = connection.execute(query, (batch_id,)).fetchone()
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (batch_id,))
+                row = cursor.fetchone()
 
         if row is None:
             raise ValueError("El lote solicitado no existe.")
 
-        return row_to_dict(row)
+        return row_to_dict(cursor, row)
 
     def get_batch_errors(self, batch_id: str) -> list[dict[str, Any]]:
         query = """
@@ -158,10 +191,11 @@ class InventoryService:
         ORDER BY row_number ASC, id ASC
         """
 
-        with get_connection(self.db_path) as connection:
-            rows = connection.execute(query, (batch_id,)).fetchall()
-
-        return [row_to_dict(row) for row in rows]
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (batch_id,))
+                rows = cursor.fetchall()
+                return [row_to_dict(cursor, row) for row in rows]
 
     def get_summary(self) -> dict[str, int]:
         inventory_query = """
@@ -179,38 +213,44 @@ class InventoryService:
         FROM import_batches
         """
 
-        with get_connection(self.db_path) as connection:
-            inventory_row = connection.execute(inventory_query).fetchone()
-            batch_row = connection.execute(batch_query).fetchone()
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(inventory_query)
+                inventory_row = cursor.fetchone()
+                cursor.execute(batch_query)
+                batch_row = cursor.fetchone()
 
         return {
-            "total_items": int(inventory_row["total_items"]),
-            "total_units_available": int(inventory_row["total_units_available"]),
-            "total_units_reserved": int(inventory_row["total_units_reserved"]),
-            "total_batches": int(batch_row["total_batches"]),
-            "batches_with_errors": int(batch_row["batches_with_errors"]),
+            "total_items": int(inventory_row[0]),
+            "total_units_available": int(inventory_row[1]),
+            "total_units_reserved": int(inventory_row[2]),
+            "total_batches": int(batch_row[0]),
+            "batches_with_errors": int(batch_row[1]),
         }
 
     def delete_item(self, item_id: str) -> None:
-        query = "DELETE FROM inventory_items WHERE id = ?"
+        query = "DELETE FROM inventory_items WHERE id = %s"
 
-        with get_connection(self.db_path) as connection:
-            cursor = connection.execute(query, (item_id,))
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (item_id,))
+                deleted = cursor.rowcount
             connection.commit()
 
-        if cursor.rowcount == 0:
+        if deleted == 0:
             raise ValueError("El item de inventario solicitado no existe.")
 
     def delete_batch(self, batch_id: str) -> None:
         self.get_batch(batch_id)
 
-        with get_connection(self.db_path) as connection:
-            connection.execute(
-                "DELETE FROM inventory_items WHERE import_batch_id = ?",
-                (batch_id,),
-            )
-            connection.execute("DELETE FROM import_errors WHERE batch_id = ?", (batch_id,))
-            connection.execute("DELETE FROM import_batches WHERE id = ?", (batch_id,))
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM inventory_items WHERE import_batch_id = %s",
+                    (batch_id,),
+                )
+                cursor.execute("DELETE FROM import_errors WHERE batch_id = %s", (batch_id,))
+                cursor.execute("DELETE FROM import_batches WHERE id = %s", (batch_id,))
             connection.commit()
 
     def _create_batch(self, file_name: str) -> str:
@@ -224,11 +264,12 @@ class InventoryService:
             valid_rows,
             invalid_rows,
             status
-        ) VALUES (?, ?, ?, 0, 0, 0, 'processing')
+        ) VALUES (%s, %s, %s, 0, 0, 0, 'processing')
         """
 
-        with get_connection(self.db_path) as connection:
-            connection.execute(query, (batch_id, file_name, utc_now_iso()))
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (batch_id, file_name, utc_now_iso()))
             connection.commit()
 
         return batch_id
@@ -243,18 +284,19 @@ class InventoryService:
     ) -> None:
         query = """
         UPDATE import_batches
-        SET processed_rows = ?,
-            valid_rows = ?,
-            invalid_rows = ?,
-            status = ?
-        WHERE id = ?
+        SET processed_rows = %s,
+            valid_rows = %s,
+            invalid_rows = %s,
+            status = %s
+        WHERE id = %s
         """
 
-        with get_connection(self.db_path) as connection:
-            connection.execute(
-                query,
-                (processed_rows, valid_rows, invalid_rows, status, batch_id),
-            )
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    query,
+                    (processed_rows, valid_rows, invalid_rows, status, batch_id),
+                )
             connection.commit()
 
     def _process_rows(self, batch_id: str, csv_content: str) -> tuple[int, int, int]:
@@ -337,6 +379,12 @@ class InventoryService:
                 f"La fila {row_number} tiene quantity_reserved mayor que quantity_available."
             )
 
+        self._validate_condition_defects(
+            condition=condition,
+            defects=defects,
+            row_number=row_number,
+        )
+
         return {
             "external_code": external_code,
             "book_reference": book_reference,
@@ -361,7 +409,7 @@ class InventoryService:
             observations,
             import_batch_id,
             updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT(external_code) DO UPDATE SET
             book_reference = excluded.book_reference,
             quantity_available = excluded.quantity_available,
@@ -373,22 +421,23 @@ class InventoryService:
             updated_at = excluded.updated_at
         """
 
-        with get_connection(self.db_path) as connection:
-            connection.execute(
-                query,
-                (
-                    item_id,
-                    item["external_code"],
-                    item["book_reference"],
-                    item["quantity_available"],
-                    item["quantity_reserved"],
-                    item["condition"],
-                    item["defects"],
-                    item["observations"],
-                    batch_id,
-                    utc_now_iso(),
-                ),
-            )
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    query,
+                    (
+                        item_id,
+                        item["external_code"],
+                        item["book_reference"],
+                        item["quantity_available"],
+                        item["quantity_reserved"],
+                        item["condition"],
+                        item["defects"],
+                        item["observations"],
+                        batch_id,
+                        utc_now_iso(),
+                    ),
+                )
             connection.commit()
 
     def _record_error(
@@ -396,14 +445,15 @@ class InventoryService:
     ) -> None:
         query = """
         INSERT INTO import_errors (id, batch_id, row_number, error_type, message)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s)
         """
 
-        with get_connection(self.db_path) as connection:
-            connection.execute(
-                query,
-                (str(uuid.uuid4()), batch_id, row_number, error_type, message),
-            )
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    query,
+                    (str(uuid.uuid4()), batch_id, row_number, error_type, message),
+                )
             connection.commit()
 
     @staticmethod
@@ -432,3 +482,21 @@ class InventoryService:
             )
 
         return parsed
+
+    @staticmethod
+    def _condition_requires_defects(condition: str) -> bool:
+        normalized = condition.strip().lower()
+        if normalized in {"used_fair", "used_poor", "damaged", "defective"}:
+            return True
+        return "defect" in normalized or "damage" in normalized
+
+    def _validate_condition_defects(
+        self,
+        condition: str,
+        defects: str,
+        row_number: int,
+    ) -> None:
+        if self._condition_requires_defects(condition) and not defects.strip():
+            raise ValueError(
+                f"La fila {row_number} requiere defects porque la condicion indica defectos."
+            )
