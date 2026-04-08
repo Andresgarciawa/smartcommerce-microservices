@@ -1,11 +1,16 @@
+import os
+
 import httpx
 from fastapi import APIRouter, HTTPException
+
 from clients.http_client import ServiceClient
 from security import AuthRequired
 
 router = APIRouter(dependencies=[AuthRequired])
 
-catalog_client = ServiceClient(base_url="http://catalog:8000")
+catalog_client = ServiceClient(
+    base_url=os.getenv("CATALOG_URL", "http://catalog:8000")
+)
 
 
 @router.get("/products")
