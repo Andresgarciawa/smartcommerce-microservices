@@ -28,6 +28,7 @@ import {
 } from './api/inventory'
 import { CatalogSection } from './components/CatalogSection'
 import { InventorySection } from './components/InventorySection'
+import { ConfigAdmin } from './components/ConfigAdmin'
 import {
   inventorySampleContent,
   inventorySampleName,
@@ -40,7 +41,7 @@ import type {
   InventorySummary,
 } from './types/inventory'
 
-type ActiveService = 'inventory' | 'catalog'
+type ActiveService = 'inventory' | 'catalog' | 'config'
 
 function App() {
   const [activeService, setActiveService] = useState<ActiveService>('inventory')
@@ -417,6 +418,13 @@ function App() {
         >
           Catalog Service
         </button>
+        <button
+          type="button"
+          className={activeService === 'config' ? 'switch-active' : ''}
+          onClick={() => setActiveService('config')}
+        >
+          ⚙️ System Configuration
+        </button>
       </section>
 
       <main className="dashboard">
@@ -444,7 +452,7 @@ function App() {
             onDeleteItem={handleDeleteInventoryItem}
             onDeleteBatch={handleDeleteInventoryBatch}
           />
-        ) : (
+        ) : activeService === 'catalog' ? (
           <CatalogSection
             summary={catalogSummary}
             categories={categories}
@@ -467,6 +475,8 @@ function App() {
             onDeleteCategory={handleDeleteCategory}
             onDeleteBook={handleDeleteBook}
           />
+        ) : (
+          <ConfigAdmin />
         )}
       </main>
     </div>
