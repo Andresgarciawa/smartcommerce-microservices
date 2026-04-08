@@ -28,7 +28,7 @@ services:
       context: .
       dockerfile: catalog_service/Dockerfile
     ports:
-      - '8001:8001'
+      - '8004:8001'
     environment:
       INVENTORY_SERVICE_URL: http://inventory-service:8000
       DB_HOST: catalog-db
@@ -49,6 +49,40 @@ services:
       - '5432:5432'
     volumes:
       - catalog_pg_data:/var/lib/postgresql/data
+
+  gateway:
+    build:
+      context: ./gateway
+    ports:
+      - "8080:8000"
+    depends_on:
+      - catalog
+      - orders
+      - pricing
+    environment:
+      - CATALOG_URL=http://catalog:8000
+      - ORDERS_URL=http://orders:8000
+      - PRICING_URL=http://pricing:8000
+
+  catalog:
+    build:
+      context: ./services/catalog
+    # si tu servicio usa otro puerto o comando, reemplaza:
+    # command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - '8001:8000'
+
+  orders:
+    build:
+      context: ./services/orders
+    ports:
+      - '8002:8000'
+
+  pricing:
+    build:
+      context: ./services/pricing
+    ports:
+      - '8003:8000'
 
 volumes:
   inventory_data:
