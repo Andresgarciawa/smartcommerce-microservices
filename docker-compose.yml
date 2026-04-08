@@ -67,8 +67,6 @@ services:
   catalog:
     build:
       context: ./services/catalog
-    # si tu servicio usa otro puerto o comando, reemplaza:
-    # command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports:
       - '8001:8000'
 
@@ -83,6 +81,30 @@ services:
       context: ./services/pricing
     ports:
       - '8003:8000'
+
+  enrichment-service:
+    build:
+      context: ./services/enrichment
+      dockerfile: Dockerfile
+    container_name: enrichment_container
+    ports:
+      - "8005:8000"
+    volumes:
+      - ./services/enrichment:/app
+    environment:
+      - DATABASE_URL=postgresql://user:pass@enrichment-db:5432/enrichment_db
+    depends_on:
+      - enrichment-db
+
+  enrichment-db:
+    image: postgres:15
+    container_name: enrichment_db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_DB=enrichment_db
+    ports:
+      - "5434:5432"
 
 volumes:
   inventory_data:
