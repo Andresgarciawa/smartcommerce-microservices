@@ -1,8 +1,9 @@
 import httpx
 from fastapi import APIRouter, HTTPException
 from clients.http_client import ServiceClient
+from security import AuthRequired
 
-router = APIRouter()
+router = APIRouter(dependencies=[AuthRequired])
 
 orders_client = ServiceClient(base_url="http://orders:8000")
 

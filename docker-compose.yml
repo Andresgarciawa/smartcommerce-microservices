@@ -77,10 +77,12 @@ services:
       - catalog
       - orders
       - pricing
+      - auth
     environment:
       - CATALOG_URL=http://catalog:8000
       - ORDERS_URL=http://orders:8000
       - PRICING_URL=http://pricing:8000
+      - AUTH_URL=http://auth:8000
 
   catalog:
     build:
@@ -99,6 +101,12 @@ services:
       context: ./services/pricing
     ports:
       - '8003:8000'
+
+  auth:
+    build:
+      context: ./services/auth
+    ports:
+      - '8006:8000'
 
   enrichment-service:
     build:
