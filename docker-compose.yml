@@ -50,6 +50,35 @@ services:
     volumes:
       - catalog_pg_data:/var/lib/postgresql/data
 
+  config-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: config_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5433:5432'
+    volumes:
+      - config_pg_data:/var/lib/postgresql/data
+
+  config-service:
+    build:
+      context: .
+      dockerfile: services/config/Dockerfile
+    ports:
+      - '8008:8008'
+    environment:
+      DATABASE_URL_CONFIG: postgresql://postgres:postgres@config-db:5432/config_db
+      DB_POOL_SIZE: 20
+      DB_POOL_MAX_OVERFLOW: 40
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      SQL_ECHO: 'false'
+    depends_on:
+      - config-db
+    volumes:
+      - ./services/config:/app
+
 volumes:
   inventory_data:
   catalog_pg_data:
+  config_pg_data:
