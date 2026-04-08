@@ -15,13 +15,13 @@ services:
   inventory-service:
     build:
       context: .
-      dockerfile: inventory_service/Dockerfile
+      dockerfile: services/inventory/Dockerfile
     ports:
       - '8000:8000'
     environment:
       CATALOG_SERVICE_URL: http://catalog-service:8001
     volumes:
-      - inventory_data:/app/inventory_service/data
+      - inventory_data:/app/inventory/data
 
   catalog-service:
     build:

@@ -6,9 +6,9 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
-from inventory_service.catalog_client import CatalogBookLookup
-from inventory_service.database import initialize_database
-from inventory_service.service import InventoryService
+from services.inventory.catalog_client import CatalogBookLookup
+from services.inventory.database import initialize_database
+from services.inventory.service import InventoryService
 
 
 @dataclass
