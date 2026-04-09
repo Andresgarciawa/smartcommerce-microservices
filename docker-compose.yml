@@ -17,7 +17,7 @@ services:
       context: .
       dockerfile: services/inventory/Dockerfile
     ports:
-      - '8000:8000'
+      - '8010:8000'
     environment:
       CATALOG_SERVICE_URL: http://catalog-service:8001
       DB_HOST: inventory-db
@@ -74,21 +74,15 @@ services:
     ports:
       - "8080:8000"
     depends_on:
-      - catalog
+      - catalog-service
       - orders
       - pricing
       - auth
     environment:
-      - CATALOG_URL=http://catalog:8000
+      - CATALOG_URL=http://catalog-service:8001
       - ORDERS_URL=http://orders:8000
       - PRICING_URL=http://pricing:8000
       - AUTH_URL=http://auth:8000
-
-  catalog:
-    build:
-      context: ./services/catalog
-    ports:
-      - '8001:8000'
 
   orders:
     build:
@@ -107,6 +101,10 @@ services:
       context: ./services/auth
     ports:
       - '8006:8000'
+    env_file:
+      - ./.env
+    depends_on:
+      - auth-db
 
   enrichment-service:
     build:
@@ -159,8 +157,20 @@ services:
     volumes:
       - ./services/config:/app
 
+  auth-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: auth_users
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret123
+    ports:
+      - '5436:5432'
+    volumes:
+      - auth_pg_data:/var/lib/postgresql/data
+
 volumes:
   inventory_data:
   catalog_pg_data:
   inventory_pg_data:
   config_pg_data:
+  auth_pg_data:
