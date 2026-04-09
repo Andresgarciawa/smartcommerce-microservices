@@ -165,20 +165,20 @@ class InventoryService:
             invalid_rows,
             status
         FROM import_batches
-        WHERE id = ?
+        WHERE id = %s
         """
 
         with get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(query, (batch_id,))
                 row = cursor.fetchone()
-
-        if row is None:
-            raise ValueError("El lote solicitado no existe.")
-
-        return row_to_dict(cursor, row)
+                if row is None:
+                    raise ValueError("El lote solicitado no existe.")
+                return row_to_dict(cursor, row)
 
     def get_batch_errors(self, batch_id: str) -> list[dict[str, Any]]:
+        self.get_batch(batch_id)
+
         query = """
         SELECT
             id,
@@ -187,13 +187,54 @@ class InventoryService:
             error_type,
             message
         FROM import_errors
-        WHERE batch_id = ?
+        WHERE batch_id = %s
         ORDER BY row_number ASC, id ASC
         """
 
         with get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(query, (batch_id,))
+                rows = cursor.fetchall()
+                return [row_to_dict(cursor, row) for row in rows]
+
+    def list_errors(
+        self,
+        batch_id: str | None = None,
+        error_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        filters: list[str] = []
+        params: list[Any] = []
+
+        if batch_id:
+            self.get_batch(batch_id)
+            filters.append("errors.batch_id = %s")
+            params.append(batch_id)
+
+        if error_type:
+            filters.append("errors.error_type = %s")
+            params.append(error_type.strip())
+
+        where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+        query = f"""
+        SELECT
+            errors.id,
+            errors.batch_id,
+            errors.row_number,
+            errors.error_type,
+            errors.message,
+            batches.file_name,
+            batches.upload_date,
+            batches.status AS batch_status
+        FROM import_errors AS errors
+        INNER JOIN import_batches AS batches
+            ON batches.id = errors.batch_id
+        {where_clause}
+        ORDER BY batches.upload_date DESC, errors.row_number ASC, errors.id ASC
+        """
+
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
                 rows = cursor.fetchall()
                 return [row_to_dict(cursor, row) for row in rows]
 
@@ -226,6 +267,52 @@ class InventoryService:
             "total_units_reserved": int(inventory_row[2]),
             "total_batches": int(batch_row[0]),
             "batches_with_errors": int(batch_row[1]),
+        }
+
+    def get_data_quality_summary(self) -> dict[str, Any]:
+        batch_query = """
+        SELECT
+            COUNT(*) AS total_batches,
+            COALESCE(SUM(CASE WHEN invalid_rows > 0 OR status = 'failed' THEN 1 ELSE 0 END), 0) AS batches_with_errors,
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_batches
+        FROM import_batches
+        """
+
+        total_errors_query = """
+        SELECT COUNT(*) AS total_errors
+        FROM import_errors
+        """
+
+        errors_by_type_query = """
+        SELECT
+            error_type,
+            COUNT(*) AS total
+        FROM import_errors
+        GROUP BY error_type
+        ORDER BY total DESC, error_type ASC
+        """
+
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(batch_query)
+                batch_row = cursor.fetchone()
+                cursor.execute(total_errors_query)
+                total_errors_row = cursor.fetchone()
+                cursor.execute(errors_by_type_query)
+                error_rows = cursor.fetchall()
+
+        return {
+            "total_batches": int(batch_row[0]),
+            "batches_with_errors": int(batch_row[1]),
+            "failed_batches": int(batch_row[2]),
+            "total_errors": int(total_errors_row[0]),
+            "errors_by_type": [
+                {
+                    "error_type": row[0],
+                    "total": int(row[1]),
+                }
+                for row in error_rows
+            ],
         }
 
     def delete_item(self, item_id: str) -> None:

@@ -4,9 +4,11 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import (
+    DataQualitySummaryResponse,
     DeleteResponse,
     HealthResponse,
     ImportBatchResponse,
+    ImportErrorDetailResponse,
     ImportErrorResponse,
     ImportPayload,
     ImportResponse,
@@ -66,6 +68,17 @@ def list_batches() -> list[dict[str, object]]:
     return service.list_batches()
 
 
+@app.get("/api/inventory/errors", response_model=list[ImportErrorDetailResponse])
+def list_errors(
+    batch_id: str | None = None,
+    error_type: str | None = None,
+) -> list[dict[str, object]]:
+    try:
+        return service.list_errors(batch_id=batch_id, error_type=error_type)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
 @app.get(
     "/api/inventory/batches/{batch_id}/errors",
     response_model=list[ImportErrorResponse],
@@ -90,6 +103,14 @@ def import_inventory(payload: ImportPayload) -> dict[str, object]:
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get(
+    "/api/inventory/quality/summary",
+    response_model=DataQualitySummaryResponse,
+)
+def get_data_quality_summary() -> dict[str, object]:
+    return service.get_data_quality_summary()
 
 
 @app.delete("/api/inventory/items/{item_id}", response_model=DeleteResponse)

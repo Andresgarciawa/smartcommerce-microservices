@@ -34,6 +34,25 @@ class ImportErrorResponse(BaseModel):
     message: str
 
 
+class ImportErrorDetailResponse(ImportErrorResponse):
+    file_name: str
+    upload_date: str
+    batch_status: str
+
+
+class ErrorTypeCountResponse(BaseModel):
+    error_type: str
+    total: int
+
+
+class DataQualitySummaryResponse(BaseModel):
+    total_batches: int
+    batches_with_errors: int
+    failed_batches: int
+    total_errors: int
+    errors_by_type: list[ErrorTypeCountResponse]
+
+
 class ImportPayload(BaseModel):
     file_name: str
     csv_content: str

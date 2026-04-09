@@ -3,6 +3,7 @@ from __future__ import annotations
 import textwrap
 import unittest
 import os
+import uuid
 from dataclasses import dataclass
 
 from services.inventory.catalog_client import CatalogBookLookup
@@ -41,6 +42,7 @@ class InventoryServiceTests(unittest.TestCase):
         self.service = InventoryService(
             catalog_client=FakeCatalogClient({"BOOK-001", "BOOK-002"}),
         )
+        self.prefix = f"TST-{uuid.uuid4().hex[:8]}"
 
     def tearDown(self) -> None:
         pass
@@ -49,10 +51,10 @@ class InventoryServiceTests(unittest.TestCase):
         csv_content = textwrap.dedent(
             """
             external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
-            INV-001,BOOK-001,12,2,used_good,,Ingreso inicial
-            INV-002,BOOK-002,4,8,used_fair,,Reserva inconsistente
+            {prefix}-001,BOOK-001,12,2,used_good,,Ingreso inicial
+            {prefix}-002,BOOK-002,4,8,used_fair,Portada rota,Reserva inconsistente
             """
-        ).strip()
+        ).strip().format(prefix=self.prefix)
 
         result = self.service.import_csv("inventory.csv", csv_content)
         summary = self.service.get_summary()
@@ -66,21 +68,21 @@ class InventoryServiceTests(unittest.TestCase):
         self.assertEqual(summary["total_items"], 1)
         self.assertEqual(summary["total_batches"], 1)
         self.assertEqual(summary["batches_with_errors"], 1)
-        self.assertEqual(items[0]["external_code"], "INV-001")
+        self.assertEqual(items[0]["external_code"], f"{self.prefix}-001")
 
     def test_import_csv_updates_existing_external_code(self) -> None:
         initial_csv = textwrap.dedent(
             """
             external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
-            INV-001,BOOK-001,5,1,used_good,,Primer lote
+            {prefix}-001,BOOK-001,5,1,used_good,,Primer lote
             """
-        ).strip()
+        ).strip().format(prefix=self.prefix)
         updated_csv = textwrap.dedent(
             """
             external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
-            INV-001,BOOK-001,9,0,new,,Actualizacion
+            {prefix}-001,BOOK-001,9,0,new,,Actualizacion
             """
-        ).strip()
+        ).strip().format(prefix=self.prefix)
 
         self.service.import_csv("batch-a.csv", initial_csv)
         self.service.import_csv("batch-b.csv", updated_csv)
@@ -94,9 +96,9 @@ class InventoryServiceTests(unittest.TestCase):
         csv_content = textwrap.dedent(
             """
             external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
-            INV-099,BOOK-404,3,1,used_good,,Libro sin catalogo
+            {prefix}-099,BOOK-404,3,1,used_good,,Libro sin catalogo
             """
-        ).strip()
+        ).strip().format(prefix=self.prefix)
 
         result = self.service.import_csv("inventory.csv", csv_content)
 
@@ -109,9 +111,9 @@ class InventoryServiceTests(unittest.TestCase):
         csv_content = textwrap.dedent(
             """
             external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
-            INV-001,BOOK-001,6,1,used_good,,Ingreso inicial
+            {prefix}-001,BOOK-001,6,1,used_good,,Ingreso inicial
             """
-        ).strip()
+        ).strip().format(prefix=self.prefix)
 
         self.service.import_csv("inventory.csv", csv_content)
         item_id = self.service.list_items()[0]["id"]
@@ -125,10 +127,10 @@ class InventoryServiceTests(unittest.TestCase):
         csv_content = textwrap.dedent(
             """
             external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
-            INV-001,BOOK-001,6,1,used_good,,Ingreso inicial
-            INV-002,BOOK-002,4,8,used_fair,,Reserva inconsistente
+            {prefix}-001,BOOK-001,6,1,used_good,,Ingreso inicial
+            {prefix}-002,BOOK-002,4,8,used_fair,Portada rota,Reserva inconsistente
             """
-        ).strip()
+        ).strip().format(prefix=self.prefix)
 
         result = self.service.import_csv("inventory.csv", csv_content)
         batch_id = result["batch"]["id"]
@@ -137,7 +139,65 @@ class InventoryServiceTests(unittest.TestCase):
 
         self.assertEqual(self.service.list_batches(), [])
         self.assertEqual(self.service.list_items(), [])
-        self.assertEqual(self.service.get_batch_errors(batch_id), [])
+        with self.assertRaises(ValueError):
+            self.service.get_batch_errors(batch_id)
+
+    def test_list_errors_returns_batch_context_and_supports_filters(self) -> None:
+        first_csv = textwrap.dedent(
+            """
+            external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
+            {prefix}-010,BOOK-404,2,1,used_good,,Referencia invalida
+            """
+        ).strip().format(prefix=self.prefix)
+        second_csv = textwrap.dedent(
+            """
+            external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
+            {prefix}-011,BOOK-001,1,3,used_good,,Reserva inconsistente
+            """
+        ).strip().format(prefix=self.prefix)
+
+        first_result = self.service.import_csv("first.csv", first_csv)
+        self.service.import_csv("second.csv", second_csv)
+
+        all_errors = self.service.list_errors()
+        validation_errors = self.service.list_errors(error_type="validation_error")
+        first_batch_errors = self.service.list_errors(batch_id=first_result["batch"]["id"])
+
+        self.assertGreaterEqual(len(all_errors), 2)
+        self.assertTrue(all("file_name" in error for error in all_errors))
+        self.assertGreaterEqual(len(validation_errors), 2)
+        self.assertEqual(len(first_batch_errors), 1)
+        self.assertEqual(first_batch_errors[0]["file_name"], "first.csv")
+
+    def test_quality_summary_aggregates_error_metrics(self) -> None:
+        invalid_row_csv = textwrap.dedent(
+            """
+            external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
+            {prefix}-020,BOOK-404,2,1,used_good,,Referencia invalida
+            """
+        ).strip().format(prefix=self.prefix)
+        invalid_schema_csv = textwrap.dedent(
+            """
+            external_code,book_reference,quantity_available,condition
+            {prefix}-021,BOOK-001,2,used_good
+            """
+        ).strip().format(prefix=self.prefix)
+
+        self.service.import_csv("row-errors.csv", invalid_row_csv)
+        self.service.import_csv("schema-errors.csv", invalid_schema_csv)
+
+        quality = self.service.get_data_quality_summary()
+
+        self.assertGreaterEqual(quality["total_batches"], 2)
+        self.assertGreaterEqual(quality["batches_with_errors"], 2)
+        self.assertGreaterEqual(quality["failed_batches"], 1)
+        self.assertGreaterEqual(quality["total_errors"], 2)
+        self.assertTrue(any(item["error_type"] == "schema_error" for item in quality["errors_by_type"]))
+        self.assertTrue(any(item["error_type"] == "validation_error" for item in quality["errors_by_type"]))
+
+    def test_get_batch_errors_raises_for_unknown_batch(self) -> None:
+        with self.assertRaises(ValueError):
+            self.service.get_batch_errors("batch-missing")
 
 
 if __name__ == "__main__":
