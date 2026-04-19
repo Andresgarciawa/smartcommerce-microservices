@@ -204,7 +204,7 @@ class CatalogService:
             publication_year = int(payload.get("publication_year", 0))
         except (TypeError, ValueError) as error:
             raise ValueError("publication_year debe ser numerico.") from error
-        current_year = datetime.now(timezone.utc).year + 1
+        current_year = 2026
         if publication_year < 1000 or publication_year > current_year:
             raise ValueError("publication_year esta fuera de rango.")
         timestamp = utc_now_iso()

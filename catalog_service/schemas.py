@@ -32,8 +32,8 @@ class BookCreate(BaseModel):
     publisher: str
     publication_year: int
     volume: str = ""
-    isbn: str = ""
-    issn: str = ""
+    isbn: str
+    issn: str
     category_id: str
     description: str = ""
     cover_url: str = ""
