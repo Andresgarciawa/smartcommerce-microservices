@@ -1,0 +1,13 @@
+.git
+.idea
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+catalog_service/tests/tmp*/
+catalog_service/tests/__pycache__/
+inventory_service/__pycache__/
+inventory_service/tests/__pycache__/
+src/**/__pycache__/

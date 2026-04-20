@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import (
     BookCreate,
+    BookEnrichmentPayload,
     BookResponse,
     CatalogSummaryResponse,
     CategoryCreate,
@@ -16,8 +17,8 @@ from .service import CatalogService
 
 app = FastAPI(
     title="Catalog Service",
-    version="1.0.0",
-    description="Microservicio para registrar y consultar productos bibliograficos.",
+    version="2.0.0",
+    description="Microservicio para registrar y consultar productos bibliograficos enriquecidos.",
 )
 
 app.add_middleware(
@@ -67,8 +68,18 @@ def get_category(category_id: str) -> dict[str, object]:
 
 
 @app.get("/api/catalog/books", response_model=list[BookResponse])
-def list_books() -> list[dict[str, object]]:
-    return service.list_books()
+def list_books(
+    q: str | None = Query(default=None, description="Filtro por titulo, autor o ISBN."),
+    category_id: str | None = Query(default=None),
+    enriched_only: bool | None = Query(default=None),
+    published_only: bool | None = Query(default=None),
+) -> list[dict[str, object]]:
+    return service.list_books(
+        q=q,
+        category_id=category_id,
+        enriched_only=enriched_only,
+        published_only=published_only,
+    )
 
 
 @app.post(
@@ -81,6 +92,14 @@ def create_book(payload: BookCreate) -> dict[str, object]:
         return service.create_book(payload.model_dump())
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.patch("/api/catalog/books/{book_id}/enrichment", response_model=BookResponse)
+def apply_enrichment(book_id: str, payload: BookEnrichmentPayload) -> dict[str, object]:
+    try:
+        return service.apply_enrichment(book_id, payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @app.get("/api/catalog/books/{book_id}", response_model=BookResponse)
