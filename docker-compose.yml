@@ -1,0 +1,55 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - '5173:5173'
+    environment:
+      VITE_INVENTORY_PROXY_TARGET: http://inventory-service:8000
+      VITE_CATALOG_PROXY_TARGET: http://catalog-service:8001
+    depends_on:
+      - inventory-service
+      - catalog-service
+
+  inventory-service:
+    build:
+      context: .
+      dockerfile: inventory_service/Dockerfile
+    ports:
+      - '8000:8000'
+    environment:
+      CATALOG_SERVICE_URL: http://catalog-service:8001
+    volumes:
+      - inventory_data:/app/inventory_service/data
+
+  catalog-service:
+    build:
+      context: .
+      dockerfile: catalog_service/Dockerfile
+    ports:
+      - '8001:8001'
+    environment:
+      INVENTORY_SERVICE_URL: http://inventory-service:8000
+      DB_HOST: catalog-db
+      DB_PORT: 5432
+      DB_NAME: catalog_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    depends_on:
+      - catalog-db
+
+  catalog-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: catalog_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      - catalog_pg_data:/var/lib/postgresql/data
+
+volumes:
+  inventory_data:
+  catalog_pg_data:
