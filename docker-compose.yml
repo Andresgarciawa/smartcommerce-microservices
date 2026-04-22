@@ -1,6 +1,111 @@
-version: '3.8'
-#Servicio de enriquecimiento de datos
 services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - '5173:5173'
+    environment:
+      VITE_INVENTORY_PROXY_TARGET: http://inventory-service:8000
+      VITE_CATALOG_PROXY_TARGET: http://catalog-service:8001
+    depends_on:
+      - inventory-service
+      - catalog-service
+
+  inventory-service:
+    build:
+      context: .
+      dockerfile: services/inventory/Dockerfile
+    ports:
+      - '8010:8000'
+    environment:
+      CATALOG_SERVICE_URL: http://catalog-service:8001
+      DB_HOST: inventory-db
+      DB_PORT: 5432
+      DB_NAME: inventory_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    volumes:
+      - inventory_data:/app/inventory/data
+    depends_on:
+      - inventory-db
+
+  catalog-service:
+    build:
+      context: .
+      dockerfile: services/catalog/Dockerfile
+    ports:
+      - '8004:8001'
+    environment:
+      INVENTORY_SERVICE_URL: http://inventory-service:8000
+      DB_HOST: catalog-db
+      DB_PORT: 5432
+      DB_NAME: catalog_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    depends_on:
+      - catalog-db
+
+  catalog-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: catalog_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      - catalog_pg_data:/var/lib/postgresql/data
+
+  inventory-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: inventory_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5435:5432'
+    volumes:
+      - inventory_pg_data:/var/lib/postgresql/data
+
+  gateway:
+    build:
+      context: ./gateway
+    ports:
+      - "8080:8000"
+    depends_on:
+      - catalog-service
+      - orders
+      - pricing
+      - auth
+    environment:
+      - CATALOG_URL=http://catalog-service:8001
+      - ORDERS_URL=http://orders:8000
+      - PRICING_URL=http://pricing:8000
+      - AUTH_URL=http://auth:8000
+
+  orders:
+    build:
+      context: ./services/orders
+    ports:
+      - '8002:8000'
+
+  pricing:
+    build:
+      context: ./services/pricing
+    ports:
+      - '8003:8000'
+
+  auth:
+    build:
+      context: ./services/auth
+    ports:
+      - '8006:8000'
+    env_file:
+      - ./.env
+    depends_on:
+      - auth-db
+
   enrichment-service:
     build:
       context: ./services/enrichment
@@ -11,12 +116,11 @@ services:
     volumes:
       - ./services/enrichment:/app
     environment:
-      - DATABASE_URL=postgresql://user:pass@db:5432/enrichment_db
-    networks:
-      - smartcommerce-network
+      - DATABASE_URL=postgresql://user:pass@enrichment-db:5432/enrichment_db
+    depends_on:
+      - enrichment-db
 
-  #Base de datos del servicio enrichment
-  db:
+  enrichment-db:
     image: postgres:15
     container_name: enrichment_db
     environment:
@@ -24,10 +128,49 @@ services:
       - POSTGRES_PASSWORD=pass
       - POSTGRES_DB=enrichment_db
     ports:
-      - "5432:5432"
-    networks:
-      - smartcommerce-network
+      - "5434:5432"
+  config-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: config_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5433:5432'
+    volumes:
+      - config_pg_data:/var/lib/postgresql/data
 
-networks:
-  smartcommerce-network:
-    driver: bridge
+  config-service:
+    build:
+      context: .
+      dockerfile: services/config/Dockerfile
+    ports:
+      - '8008:8008'
+    environment:
+      DATABASE_URL_CONFIG: postgresql://postgres:postgres@config-db:5432/config_db
+      DB_POOL_SIZE: 20
+      DB_POOL_MAX_OVERFLOW: 40
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      SQL_ECHO: 'false'
+    depends_on:
+      - config-db
+    volumes:
+      - ./services/config:/app
+
+  auth-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: auth_users
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret123
+    ports:
+      - '5436:5432'
+    volumes:
+      - auth_pg_data:/var/lib/postgresql/data
+
+volumes:
+  inventory_data:
+  catalog_pg_data:
+  inventory_pg_data:
+  config_pg_data:
+  auth_pg_data:

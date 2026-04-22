@@ -1,0 +1,22 @@
+import os
+
+import httpx
+from fastapi import APIRouter, HTTPException
+
+from clients.http_client import ServiceClient
+from security import AuthRequired
+
+router = APIRouter(dependencies=[AuthRequired])
+
+orders_client = ServiceClient(
+    base_url=os.getenv("ORDERS_URL", "http://orders:8000")
+)
+
+
+@router.get("/")
+async def list_orders(customer_id: str | None = None):
+    params = {"customer_id": customer_id} if customer_id else {}
+    try:
+        return await orders_client.get("/orders", params=params)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
