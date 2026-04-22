@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node node_modules/vite/bin/vite.js --configLoader native",
     "dev:inventory": "python -m uvicorn inventory_service.app:app --reload --host 0.0.0.0 --port 8000",
-    "dev:catalog": "python -m uvicorn catalog_service.app:app --reload --host 0.0.0.0 --port 8001",
+    "dev:catalog": "python -m uvicorn services.catalog.app:app --reload --host 0.0.0.0 --port 8001",
     "dev:compose": "docker compose up --build",
     "build": "tsc -b && node node_modules/vite/bin/vite.js build --configLoader native",
     "lint": "eslint .",

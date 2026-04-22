@@ -26,7 +26,7 @@ services:
   catalog-service:
     build:
       context: .
-      dockerfile: catalog_service/Dockerfile
+      dockerfile: services/catalog/Dockerfile
     ports:
       - '8001:8001'
     environment:
