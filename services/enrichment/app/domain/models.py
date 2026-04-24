@@ -20,3 +20,4 @@ class EnrichmentResult(BaseModel):
     normalized_description: Optional[str] = None
     cover_url: Optional[str] = None
     metadata_json: Optional[dict[str, Any]] = None
+
