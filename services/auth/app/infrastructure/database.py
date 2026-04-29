@@ -24,7 +24,6 @@ Base = declarative_base()
 
 class UserModel(Base):
     __tablename__ = "users"
-    # Corrección: Se usa Column, no create_column
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)

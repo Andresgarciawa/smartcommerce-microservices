@@ -1,11 +1,10 @@
 FROM python:3.12-slim
-
 WORKDIR /app
 
-COPY requirements.txt ./
+COPY services/catalog/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY catalog_service ./catalog_service
+COPY ./services/catalog/ ./catalog_service/
 
 EXPOSE 8001
 
