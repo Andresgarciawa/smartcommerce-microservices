@@ -18,7 +18,7 @@ class AuthService:
             
             self.email.send_verification_code(email, code)
             
-            # 4. Persistencia: Guardar el código en la tabla que creamos (VerificationCode)
+            # 4. Persistencia: Guardar el código en la tabla (VerificationCode)
             self.repo.save_2fa_code(user.id, code)
             
             return {"message": "Código enviado al correo"}
@@ -26,7 +26,7 @@ class AuthService:
         raise Exception("Credenciales inválidas")
     
     def generate_random_code(self):
-        
+
         return "".join(secrets.choice("0123456789") for _ in range(6))
 
     def login_step_two(self, email, code):

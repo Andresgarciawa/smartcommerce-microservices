@@ -16,7 +16,6 @@ from app.infraestructure.external_apis import (
     enrich_with_retries
 )
 from sqlalchemy.orm import Session
-from app.infraestructure.catalog_client import notify_catalog_enrichment
 
 try:
     from shared.config_client import get_client
@@ -25,7 +24,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-async def run(request: EnrichmentRequest, db: Session = None, book_id: str = None) -> EnrichmentResult:
+async def run(request: EnrichmentRequest, db: Session = None) -> EnrichmentResult:
     """
     Caso de uso: Enriquecer datos de un libro llamando a APIs externas
     y usando configuración desde Config Service.
@@ -121,17 +120,5 @@ async def run(request: EnrichmentRequest, db: Session = None, book_id: str = Non
         except Exception as e:
             db.rollback()
             logger.error(f"Error guardando en BD: {e}")
-
-    # Notificar al Catalog Service si se proveyó un book_id
-    if book_id and result_data.get("source") != "FALLBACK":
-        catalog_payload = {
-            "normalized_description": result_domain.normalized_description,
-            "cover_url": result_domain.cover_url,
-            "source": result_data.get("source"),
-            "book_reference": request.book_reference,
-        }
-        catalog_updated = await notify_catalog_enrichment(book_id, catalog_payload)
-        if not catalog_updated:
-            logger.warning(f"No se pudo actualizar el Catalog para book_id={book_id}, pero el enriquecimiento local fue exitoso.")
 
     return result_domain

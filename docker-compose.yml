@@ -15,7 +15,7 @@ services:
   inventory-service:
     build:
       context: .
-      dockerfile: services/inventory/Dockerfile
+      dockerfile: services/catalog/Dockerfile
     ports:
       - '8010:8000'
     environment:
@@ -45,6 +45,15 @@ services:
       DB_PASSWORD: postgres
     depends_on:
       - catalog-db
+
+  normalization-service:
+    build:
+      context: ./services/normalization
+    ports:
+      - "8007:8000"
+    environment:
+      - APP_NAME=normalization_service
+      - LOG_LEVEL=info
 
   catalog-db:
     image: postgres:16-alpine
@@ -119,12 +128,10 @@ services:
       - ./services/enrichment:/app
     environment:
       - DATABASE_URL=postgresql://user:pass@enrichment-db:5432/enrichment_db
-      - CATALOG_SERVICE_URL=http://catalog-service:8001
-      - CONFIG_SERVICE_URL=http://config-service:8008
+      - NORMALIZATION_SERVICE_URL=http://normalization-service:8000
     depends_on:
       - enrichment-db
-      - catalog-service
-      - config-service
+      - normalization-service
 
   enrichment-db:
     image: postgres:15

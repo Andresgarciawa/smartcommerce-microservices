@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import uuid
 
-from services.catalog.service import CatalogService
+from catalog_service.service import CatalogService
 
 
 @dataclass
