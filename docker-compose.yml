@@ -75,11 +75,13 @@ services:
       - "8080:8000"
     depends_on:
       - catalog-service
+      - inventory-service
       - orders
       - pricing
       - auth
     environment:
       - CATALOG_URL=http://catalog-service:8001
+      - INVENTORY_URL=http://inventory-service:8000
       - ORDERS_URL=http://orders:8000
       - PRICING_URL=http://pricing:8000
       - AUTH_URL=http://auth:8000

@@ -36,11 +36,6 @@ export interface InventorySummary {
   batches_with_errors: number
 }
 
-export interface ImportPayload {
-  file_name: string
-  csv_content: string
-}
-
 export interface ImportResponse {
   batch: ImportBatch
   errors: ImportErrorRow[]

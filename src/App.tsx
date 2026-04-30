@@ -225,10 +225,10 @@ function App() {
     setInventoryErrorMessage(null)
 
     try {
-      const result = await importInventoryCsv({
-        file_name: inventoryFileName.trim() || `inventory-${Date.now()}.csv`,
-        csv_content: inventoryCsvContent,
-      })
+      const result = await importInventoryCsv(
+        inventoryFileName.trim() || `inventory-${Date.now()}.csv`,
+        inventoryCsvContent,
+      )
 
       setInventorySuccessMessage(
         `Lote ${result.batch.id.slice(0, 8)} procesado con ${result.batch.valid_rows} filas validas y ${result.batch.invalid_rows} invalidas.`,
