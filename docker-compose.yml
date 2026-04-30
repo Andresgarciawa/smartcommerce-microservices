@@ -117,8 +117,12 @@ services:
       - ./services/enrichment:/app
     environment:
       - DATABASE_URL=postgresql://user:pass@enrichment-db:5432/enrichment_db
+      - CATALOG_SERVICE_URL=http://catalog-service:8001
+      - CONFIG_SERVICE_URL=http://config-service:8008
     depends_on:
       - enrichment-db
+      - catalog-service
+      - config-service
 
   enrichment-db:
     image: postgres:15
