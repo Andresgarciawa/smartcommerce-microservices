@@ -5,8 +5,8 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY services/catalog ./catalog
+COPY services/catalog ./services/catalog
 
 EXPOSE 8001
 
-CMD ["uvicorn", "catalog.app:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uvicorn", "services.catalog.app:app", "--host", "0.0.0.0", "--port", "8001"]

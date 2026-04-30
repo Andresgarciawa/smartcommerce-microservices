@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import (
     BookCreate,
-    BookEnrich,
+    BookEnrichmentPayload,
     BookResponse,
-    BookUpdate,
     CatalogSummaryResponse,
     CategoryCreate,
     CategoryResponse,
@@ -18,8 +17,8 @@ from .service import CatalogService
 
 app = FastAPI(
     title="Catalog Service",
-    version="1.0.0",
-    description="Microservicio para registrar y consultar productos bibliograficos.",
+    version="2.0.0",
+    description="Microservicio para registrar y consultar productos bibliograficos enriquecidos.",
 )
 
 app.add_middleware(
@@ -70,24 +69,16 @@ def get_category(category_id: str) -> dict[str, object]:
 
 @app.get("/api/catalog/books", response_model=list[BookResponse])
 def list_books(
-    q: str | None = None,
-    category_id: str | None = None,
-    published: bool | None = None,
-    enriched: bool | None = None,
-    year_from: int | None = None,
-    year_to: int | None = None,
-    limit: int = 50,
-    offset: int = 0,
+    q: str | None = Query(default=None, description="Filtro por titulo, autor o ISBN."),
+    category_id: str | None = Query(default=None),
+    enriched_only: bool | None = Query(default=None),
+    published_only: bool | None = Query(default=None),
 ) -> list[dict[str, object]]:
     return service.list_books(
-        query_text=q,
+        q=q,
         category_id=category_id,
-        published=published,
-        enriched=enriched,
-        year_from=year_from,
-        year_to=year_to,
-        limit=limit,
-        offset=offset,
+        enriched_only=enriched_only,
+        published_only=published_only,
     )
 
 
@@ -103,36 +94,20 @@ def create_book(payload: BookCreate) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+@app.patch("/api/catalog/books/{book_id}/enrichment", response_model=BookResponse)
+def apply_enrichment(book_id: str, payload: BookEnrichmentPayload) -> dict[str, object]:
+    try:
+        return service.apply_enrichment(book_id, payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
 @app.get("/api/catalog/books/{book_id}", response_model=BookResponse)
 def get_book(book_id: str) -> dict[str, object]:
     try:
         return service.get_book(book_id)
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-
-
-@app.put("/api/catalog/books/{book_id}", response_model=BookResponse)
-def update_book(book_id: str, payload: BookUpdate) -> dict[str, object]:
-    try:
-        return service.update_book(book_id, payload.model_dump(exclude_unset=True))
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-
-
-@app.post("/api/catalog/books/{book_id}/publish", response_model=BookResponse)
-def publish_book(book_id: str) -> dict[str, object]:
-    try:
-        return service.publish_book(book_id)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-
-
-@app.post("/api/catalog/books/{book_id}/enrich", response_model=BookResponse)
-def enrich_book(book_id: str, payload: BookEnrich) -> dict[str, object]:
-    try:
-        return service.enrich_book(book_id, payload.model_dump(exclude_unset=True))
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.delete("/api/catalog/categories/{category_id}", response_model=DeleteResponse)

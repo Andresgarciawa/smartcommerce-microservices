@@ -210,6 +210,6 @@ Se configuran en el `docker-compose.yml` de la raíz del proyecto.
 
 ## Desarrollador
 
-**Responsable:** Jorge  
+**Responsable:** Jorge Lozano
 **Microservicio:** AI Enrichment Service  
 **Proyecto:** SmartCommerce Microservices — Sistema de Gestión de Biblioteca
