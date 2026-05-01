@@ -189,6 +189,7 @@ services:
       context: ./services/auth
     ports:
       - '8006:8000'
+    ## CCgonzalez: se comenta el env_file para funcionamiento normal
     ##env_file:
       ##- ./.env
     depends_on:
