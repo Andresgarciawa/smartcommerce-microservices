@@ -28,7 +28,8 @@ services:
     volumes:
       - inventory_data:/app/inventory/data
     depends_on:
-      - inventory-db
+      inventory-db:
+        condition: service_healthy
 
   catalog-service:
     build:
@@ -44,7 +45,8 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
     depends_on:
-      - catalog-db
+      catalog-db:
+        condition: service_healthy
 
   normalization-service:
     build:
@@ -65,6 +67,11 @@ services:
       - '5432:5432'
     volumes:
       - catalog_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d catalog_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   inventory-db:
     image: postgres:16-alpine
@@ -76,6 +83,11 @@ services:
       - '5435:5432'
     volumes:
       - inventory_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d inventory_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   gateway:
     build:
@@ -106,6 +118,39 @@ services:
       context: ./services/pricing
     ports:
       - '8003:8000'
+    environment:
+      CATALOG_SERVICE_URL: http://catalog-service:8001
+      INVENTORY_SERVICE_URL: http://inventory-service:8000
+      DB_HOST: pricing-db
+      DB_PORT: 5432
+      DB_NAME: pricing_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      GOOGLE_BOOKS_API_KEY: ${GOOGLE_BOOKS_API_KEY:-}
+      GOOGLE_BOOKS_COUNTRY: ${GOOGLE_BOOKS_COUNTRY:-CO}
+    depends_on:
+      pricing-db:
+        condition: service_healthy
+      catalog-service:
+        condition: service_started
+      inventory-service:
+        condition: service_started
+
+  pricing-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pricing_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5437:5432'
+    volumes:
+      - pricing_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pricing_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   auth:
     build:
@@ -115,7 +160,8 @@ services:
     env_file:
       - ./.env
     depends_on:
-      - auth-db
+      auth-db:
+        condition: service_healthy
 
   enrichment-service:
     build:
@@ -130,8 +176,8 @@ services:
       - DATABASE_URL=postgresql://user:pass@enrichment-db:5432/enrichment_db
       - NORMALIZATION_SERVICE_URL=http://normalization-service:8000
     depends_on:
-      - enrichment-db
-      - normalization-service
+      enrichment-db:
+        condition: service_healthy
 
   enrichment-db:
     image: postgres:15
@@ -142,6 +188,11 @@ services:
       - POSTGRES_DB=enrichment_db
     ports:
       - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d enrichment_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
   config-db:
     image: postgres:16-alpine
     environment:
@@ -152,6 +203,11 @@ services:
       - '5433:5432'
     volumes:
       - config_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d config_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   config-service:
     build:
@@ -166,7 +222,8 @@ services:
       CORS_ORIGINS: http://localhost:5173,http://localhost:3000
       SQL_ECHO: 'false'
     depends_on:
-      - config-db
+      config-db:
+        condition: service_healthy
     volumes:
       - ./services/config:/app
 
@@ -180,10 +237,16 @@ services:
       - '5436:5432'
     volumes:
       - auth_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d auth_users"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
   inventory_data:
   catalog_pg_data:
   inventory_pg_data:
+  pricing_pg_data:
   config_pg_data:
   auth_pg_data:
