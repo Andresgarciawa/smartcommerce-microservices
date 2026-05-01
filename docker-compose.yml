@@ -72,7 +72,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-
+  
   inventory-db:
     image: postgres:16-alpine
     environment:
@@ -121,6 +121,7 @@ services:
     environment:
       CATALOG_SERVICE_URL: http://catalog-service:8001
       INVENTORY_SERVICE_URL: http://inventory-service:8000
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672/
       DB_HOST: pricing-db
       DB_PORT: 5432
       DB_NAME: pricing_db
@@ -128,6 +129,8 @@ services:
       DB_PASSWORD: postgres
       GOOGLE_BOOKS_API_KEY: ${GOOGLE_BOOKS_API_KEY:-}
       GOOGLE_BOOKS_COUNTRY: ${GOOGLE_BOOKS_COUNTRY:-CO}
+      PRICING_AUDIT_EXCHANGE: pricing.audit
+      PRICING_AUDIT_ROUTING_KEY: pricing.decision.event
     depends_on:
       pricing-db:
         condition: service_healthy
@@ -135,6 +138,35 @@ services:
         condition: service_started
       inventory-service:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  pricing-audit-worker:
+    build:
+      context: ./services/pricing
+    command: ["python", "-m", "pricing.audit_worker"]
+    environment:
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672/
+      PRICING_AUDIT_EXCHANGE: pricing.audit
+      PRICING_AUDIT_ROUTING_KEY: pricing.decision.event
+      PRICING_AUDIT_QUEUE: pricing.audit.log
+      PRICING_AUDIT_RETRY_EXCHANGE: pricing.audit.retry
+      PRICING_AUDIT_RETRY_QUEUE: pricing.audit.retry.queue
+      PRICING_AUDIT_RETRY_DELAY_MS: 5000
+      PRICING_AUDIT_DLX: pricing.audit.dlx
+      PRICING_AUDIT_DLQ: pricing.audit.dlq
+      PRICING_AUDIT_MAX_RETRIES: 3
+      LOG_LEVEL: INFO
+      DB_HOST: pricing-db
+      DB_PORT: 5432
+      DB_NAME: pricing_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      pricing-db:
+        condition: service_healthy
 
   pricing-db:
     image: postgres:16-alpine
@@ -157,8 +189,8 @@ services:
       context: ./services/auth
     ports:
       - '8006:8000'
-    env_file:
-      - ./.env
+    ##env_file:
+      ##- ./.env
     depends_on:
       auth-db:
         condition: service_healthy
@@ -240,6 +272,20 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d auth_users"]
       interval: 5s
+      timeout: 5s
+      retries: 10
+  
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
       timeout: 5s
       retries: 10
 

@@ -10,6 +10,9 @@ from .catalog_client import CatalogClient
 from .google_books_client import GoogleBooksClient, MarketReference
 from .inventory_client import InventoryClient
 from .repository import PricingRepository
+from .audit_publisher import AuditPublisher
+from .audit_repository import AuditRepository
+
 
 CONDITION_FACTORS: dict[str, float] = {
     "new": 1.00,
@@ -57,97 +60,161 @@ class PricingService:
         )
         self.repository = repository or PricingRepository()
         self.market_reference_client = market_reference_client or GoogleBooksClient()
+        self.audit_publisher = AuditPublisher()
+        self.audit_repository = AuditRepository()
+
 
     def calculate_price(self, book_reference: str) -> dict[str, Any]:
+        correlation_id = str(uuid.uuid4())
         clean_reference = book_reference.strip()
-        if not clean_reference:
-            raise ValueError("book_reference es obligatorio.")
 
-        book_lookup = self.catalog_client.get_book(clean_reference)
-        if not book_lookup.reachable:
-            raise RuntimeError(book_lookup.error_message or "Catalog Service no disponible.")
-        if not book_lookup.exists or not book_lookup.payload:
-            raise ValueError("El libro solicitado no existe.")
+        def publish_audit(
+            event_type: str,
+            status: str,
+            decision_id: str | None,
+            payload: dict[str, Any],
+        ) -> None:
+            event = {
+                "event_id": str(uuid.uuid4()),
+                "correlation_id": correlation_id,
+                "event_type": event_type,
+                "status": status,
+                "service": "pricing",
+                "book_reference": clean_reference or book_reference,
+                "decision_id": decision_id,
+                "occurred_at": utc_now_iso(),
+                "payload": payload,
+            }
+            try:
+                self.audit_publisher.publish_event(event)
+            except Exception:
+                # Auditoria no debe romper el flujo principal de pricing
+                pass
 
-        book = book_lookup.payload
-        inventory_snapshot = self.inventory_client.list_items(clean_reference)
-        inventory_items = inventory_snapshot.items
-
-        external_lookup = self._lookup_market_references(book)
-        market_references = external_lookup.pop("references", [])
-        base_price = self._compute_base_price(book, market_references)
-        quantity_available_total = self._total_quantity_available(inventory_items)
-        condition_label, condition_factor = self._compute_condition(inventory_items)
-        stock_factor = self._compute_stock_factor(quantity_available_total)
-        source_used = "google_books_sale_info" if market_references else "internal_rules"
-        explanation = [
-            f"Ajuste por condicion {condition_label}: factor {condition_factor:.2f}",
-            f"Ajuste por disponibilidad total {quantity_available_total}: factor {stock_factor:.2f}",
-        ]
-        if market_references:
-            reference_values = ", ".join(
-                f"{reference.normalized_price:.0f} COP ({reference.currency})"
-                for reference in market_references
-            )
-            explanation.insert(
-                0,
-                f"Precio base por referencias Google Books: {base_price:.0f} COP. Valores usados: {reference_values}",
-            )
-        else:
-            explanation.insert(
-                0,
-                f"Precio base interno calculado: {base_price:.0f} COP. Google Books no entrego saleInfo usable.",
-            )
-
-        if not inventory_snapshot.reachable:
-            explanation.append(
-                "No fue posible consultar Inventory Service. Se aplico fallback de condicion y stock."
-            )
-            source_used = f"{source_used}_inventory_fallback"
-        elif not inventory_items:
-            explanation.append(
-                "No existen items disponibles en inventario para el libro. Se aplico condicion desconocida."
-            )
-
-        raw_price = base_price * condition_factor * stock_factor
-        suggested_price = self._round_price(raw_price)
-        explanation.append(f"Precio sugerido final redondeado: {suggested_price:.0f} COP")
-
-        catalog_sync = False
-        update_result = self.catalog_client.update_book_price(
-            clean_reference,
-            suggested_price=suggested_price,
-            currency="COP",
-            price_source="pricing_service",
+        publish_audit(
+            event_type="pricing.calculate.started",
+            status="started",
+            decision_id=None,
+            payload={"requested_by": "system"},
         )
-        if update_result.synced:
-            catalog_sync = True
-            explanation.append("Catalog Service actualizado con suggested_price y price_source.")
-        else:
-            explanation.append(
-                f"No se pudo sincronizar Catalog Service despues del calculo. {update_result.error_message}"
-            )
 
-        decision = {
-            "id": str(uuid.uuid4()),
-            "book_reference": clean_reference,
-            "title": str(book.get("title", "")).strip() or clean_reference,
-            "suggested_price": float(suggested_price),
-            "currency": "COP",
-            "base_price": float(base_price),
-            "condition_label": condition_label,
-            "condition_factor": float(round(condition_factor, 4)),
-            "stock_factor": float(round(stock_factor, 4)),
-            "quantity_available_total": quantity_available_total,
-            "reference_count": len(market_references),
-            "source_used": source_used,
-            "external_lookup": external_lookup,
-            "market_references": [reference.to_dict() for reference in market_references],
-            "catalog_sync": catalog_sync,
-            "explanation": explanation,
-            "created_at": utc_now_iso(),
-        }
-        return self.repository.save_decision(decision)
+        try:
+            if not clean_reference:
+                raise ValueError("book_reference es obligatorio.")
+
+            book_lookup = self.catalog_client.get_book(clean_reference)
+            if not book_lookup.reachable:
+                raise RuntimeError(book_lookup.error_message or "Catalog Service no disponible.")
+            if not book_lookup.exists or not book_lookup.payload:
+                raise ValueError("El libro solicitado no existe.")
+
+            book = book_lookup.payload
+            inventory_snapshot = self.inventory_client.list_items(clean_reference)
+            inventory_items = inventory_snapshot.items
+
+            external_lookup = self._lookup_market_references(book)
+            market_references = external_lookup.pop("references", [])
+            base_price = self._compute_base_price(book, market_references)
+            quantity_available_total = self._total_quantity_available(inventory_items)
+            condition_label, condition_factor = self._compute_condition(inventory_items)
+            stock_factor = self._compute_stock_factor(quantity_available_total)
+            source_used = "google_books_sale_info" if market_references else "internal_rules"
+            explanation = [
+                f"Ajuste por condicion {condition_label}: factor {condition_factor:.2f}",
+                f"Ajuste por disponibilidad total {quantity_available_total}: factor {stock_factor:.2f}",
+            ]
+            if market_references:
+                reference_values = ", ".join(
+                    f"{reference.normalized_price:.0f} COP ({reference.currency})"
+                    for reference in market_references
+                )
+                explanation.insert(
+                    0,
+                    f"Precio base por referencias Google Books: {base_price:.0f} COP. Valores usados: {reference_values}",
+                )
+            else:
+                explanation.insert(
+                    0,
+                    f"Precio base interno calculado: {base_price:.0f} COP. Google Books no entrego saleInfo usable.",
+                )
+
+            if not inventory_snapshot.reachable:
+                explanation.append(
+                    "No fue posible consultar Inventory Service. Se aplico fallback de condicion y stock."
+                )
+                source_used = f"{source_used}_inventory_fallback"
+            elif not inventory_items:
+                explanation.append(
+                    "No existen items disponibles en inventario para el libro. Se aplico condicion desconocida."
+                )
+
+            raw_price = base_price * condition_factor * stock_factor
+            suggested_price = self._round_price(raw_price)
+            explanation.append(f"Precio sugerido final redondeado: {suggested_price:.0f} COP")
+
+            catalog_sync = False
+            update_result = self.catalog_client.update_book_price(
+                clean_reference,
+                suggested_price=suggested_price,
+                currency="COP",
+                price_source="pricing_service",
+            )
+            if update_result.synced:
+                catalog_sync = True
+                explanation.append("Catalog Service actualizado con suggested_price y price_source.")
+            else:
+                explanation.append(
+                    f"No se pudo sincronizar Catalog Service despues del calculo. {update_result.error_message}"
+                )
+
+            decision = {
+                "id": str(uuid.uuid4()),
+                "book_reference": clean_reference,
+                "title": str(book.get("title", "")).strip() or clean_reference,
+                "suggested_price": float(suggested_price),
+                "currency": "COP",
+                "base_price": float(base_price),
+                "condition_label": condition_label,
+                "condition_factor": float(round(condition_factor, 4)),
+                "stock_factor": float(round(stock_factor, 4)),
+                "quantity_available_total": quantity_available_total,
+                "reference_count": len(market_references),
+                "source_used": source_used,
+                "external_lookup": external_lookup,
+                "market_references": [reference.to_dict() for reference in market_references],
+                "catalog_sync": catalog_sync,
+                "explanation": explanation,
+                "created_at": utc_now_iso(),
+            }
+            saved = self.repository.save_decision(decision)
+
+            publish_audit(
+                event_type="pricing.calculate.completed",
+                status="completed",
+                decision_id=saved["id"],
+                payload={
+                    "suggested_price": saved["suggested_price"],
+                    "currency": saved["currency"],
+                    "source_used": saved["source_used"],
+                    "catalog_sync": saved["catalog_sync"],
+                    "reference_count": saved["reference_count"],
+                    "quantity_available_total": saved["quantity_available_total"],
+                },
+            )
+            return saved
+
+        except Exception as error:
+            publish_audit(
+                event_type="pricing.calculate.failed",
+                status="failed",
+                decision_id=None,
+                payload={
+                    "error_type": type(error).__name__,
+                    "error_message": str(error),
+                },
+            )
+            raise
+
 
     def calculate_prices_batch(self, book_references: list[str]) -> dict[str, Any]:
         items: list[dict[str, Any]] = []
@@ -325,3 +392,26 @@ class PricingService:
     def _round_price(value: float) -> float:
         rounded = round(value / 1000.0) * 1000.0
         return max(5000.0, rounded)
+
+    def list_audit_events(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        book_reference: str | None = None,
+        event_type: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        return self.audit_repository.list_events(
+            limit=limit,
+            offset=offset,
+            book_reference=book_reference,
+            event_type=event_type,
+            status=status,
+        )
+
+    def get_audit_event(self, event_id: str) -> dict[str, Any]:
+        event = self.audit_repository.get_event(event_id)
+        if event is None:
+            raise ValueError("No existe evento de auditoria para el event_id solicitado.")
+        return event
+

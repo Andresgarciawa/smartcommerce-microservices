@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import (
@@ -11,6 +11,9 @@ from .schemas import (
     PricingCalculateRequest,
     PricingDecisionListResponse,
     PricingDecisionResponse,
+    PricingAuditEventResponse,
+    PricingAuditListResponse,
+
 )
 from .service import PricingService
 
@@ -83,3 +86,31 @@ def get_latest_decision(book_reference: str) -> dict[str, object]:
 def get_product_prices(product_ids: str) -> dict[str, object]:
     book_references = [item.strip() for item in product_ids.split(",") if item.strip()]
     return service.get_legacy_product_prices(book_references)
+
+@app.get("/api/pricing/audit", response_model=PricingAuditListResponse)
+def list_audit_events(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    book_reference: str | None = Query(default=None),
+    event_type: str | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+) -> dict[str, object]:
+    return service.list_audit_events(
+        limit=limit,
+        offset=offset,
+        book_reference=book_reference,
+        event_type=event_type,
+        status=status_filter,
+    )
+
+@app.get(
+    "/api/pricing/audit/{event_id}",
+    response_model=PricingAuditEventResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+def get_audit_event(event_id: str) -> dict[str, object]:
+    try:
+        return service.get_audit_event(event_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+

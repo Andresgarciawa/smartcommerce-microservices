@@ -61,3 +61,21 @@ class BatchPricingResponse(BaseModel):
 class PricingDecisionListResponse(BaseModel):
     items: list[PricingDecisionResponse]
     total: int
+
+class PricingAuditEventResponse(BaseModel):
+    event_id: str
+    correlation_id: str
+    event_type: str
+    status: str
+    service: str
+    book_reference: str
+    decision_id: str | None = None
+    occurred_at: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+
+class PricingAuditListResponse(BaseModel):
+    items: list[PricingAuditEventResponse]
+    total: int
+

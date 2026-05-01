@@ -46,6 +46,33 @@ CREATE INDEX IF NOT EXISTS idx_pricing_decisions_book_reference
 
 CREATE INDEX IF NOT EXISTS idx_pricing_decisions_created_at
     ON pricing_decisions(created_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS pricing_audit_log (
+    event_id TEXT PRIMARY KEY,
+    correlation_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    service TEXT NOT NULL,
+    book_reference TEXT NOT NULL,
+    decision_id TEXT NULL,
+    occurred_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pricing_audit_book_reference
+    ON pricing_audit_log(book_reference);
+
+CREATE INDEX IF NOT EXISTS idx_pricing_audit_correlation_id
+    ON pricing_audit_log(correlation_id);
+
+CREATE INDEX IF NOT EXISTS idx_pricing_audit_occurred_at
+    ON pricing_audit_log(occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_pricing_audit_event_type
+    ON pricing_audit_log(event_type);
+
 """
 
 
