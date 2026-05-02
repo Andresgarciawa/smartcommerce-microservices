@@ -1,0 +1,5 @@
+﻿external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
+INV-BOOK1-001,82eda775-0248-4011-98e8-a309e40df38a,2,0,used_good,,minor wear
+INV-BOOK1-002,82eda775-0248-4011-98e8-a309e40df38a,1,0,new,,sealed
+INV-BOOK2-001,feb02aef-d842-4f62-a5f0-2538aacca2a8,8,1,like_new,,great condition
+INV-BOOK3-001,80fdb2e0-aca5-4250-98bf-39de156b1a5f,12,1,used_fair,cover damage,old copy
