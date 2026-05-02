@@ -30,6 +30,7 @@ async def notify_catalog_enrichment(
         "source": enrichment_result.get("source") or "UNKNOWN",
         "description": enrichment_result.get("normalized_description") or None,
         "cover_url": enrichment_result.get("cover_url") or None,
+        "title": enrichment_result.get("normalized_title") or None,
         "author": enrichment_result.get("normalized_author") or None,
         "publisher": enrichment_result.get("normalized_publisher") or None,
         "publication_year": enrichment_result.get("normalized_year") or None,
@@ -41,6 +42,7 @@ async def notify_catalog_enrichment(
         payload["source"] = "UNKNOWN"
 
     try:
+        logger.info(f"Enviando payload al catálogo para book_id={book_id}: {payload}")
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.patch(url, json=payload)
             if response.status_code == 200:

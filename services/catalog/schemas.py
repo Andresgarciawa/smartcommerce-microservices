@@ -60,6 +60,9 @@ class BookCreate(BaseModel):
 
 
 class BookEnrichmentPayload(BaseModel):
+    title: str = ""
+    author: str = ""
+    publisher: str = ""
     description: str = ""
     cover_url: str = ""
     summary: str = ""

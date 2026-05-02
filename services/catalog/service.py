@@ -228,7 +228,10 @@ class CatalogService:
         merged = self._merge_enrichment(current, payload)
         query = f"""
         UPDATE books
-        SET description = {self.placeholder},
+        SET title = {self.placeholder},
+            author = {self.placeholder},
+            publisher = {self.placeholder},
+            description = {self.placeholder},
             cover_url = {self.placeholder},
             summary = {self.placeholder},
             language = {self.placeholder},
@@ -252,6 +255,9 @@ class CatalogService:
             cursor.execute(
                 query,
                 (
+                    merged["title"],
+                    merged["author"],
+                    merged["publisher"],
                     merged["description"],
                     merged["cover_url"],
                     merged["summary"],
@@ -399,9 +405,31 @@ class CatalogService:
                 return incoming or existing
             return incoming if incoming not in ("", 0) else existing
 
+        def is_empty_or_unknown(val: Any) -> bool:
+            if not val:
+                return True
+            if isinstance(val, str) and val.strip().lower() in ("", "desconocido", "unknown"):
+                return True
+            return False
+
+        title = current.get("title", "")
+        incoming_title = payload.get("title")
+        if is_empty_or_unknown(title) and incoming_title:
+            title = str(incoming_title).strip()
+
+        author = current.get("author", "")
+        incoming_author = payload.get("author")
+        if is_empty_or_unknown(author) and incoming_author:
+            author = str(incoming_author).strip()
+
+        publisher = current.get("publisher", "")
+        incoming_publisher = payload.get("publisher")
+        if is_empty_or_unknown(publisher) and incoming_publisher:
+            publisher = str(incoming_publisher).strip()
+
         description = current["description"]
         incoming_description = str(payload.get("description", "")).strip()
-        if not description and incoming_description:
+        if is_empty_or_unknown(description) and incoming_description:
             description = incoming_description
 
         cover_url = prefer_non_empty(current["cover_url"], payload.get("cover_url"))
@@ -431,6 +459,9 @@ class CatalogService:
         publication_year = prefer_non_empty(current["publication_year"], payload.get("publication_year"))
 
         return {
+            "title": title,
+            "author": author,
+            "publisher": publisher,
             "description": description,
             "cover_url": cover_url,
             "summary": summary,
