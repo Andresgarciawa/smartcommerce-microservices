@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import (
@@ -10,7 +10,6 @@ from .schemas import (
     ImportBatchResponse,
     ImportErrorDetailResponse,
     ImportErrorResponse,
-    ImportPayload,
     ImportResponse,
     InventoryItemResponse,
     InventorySummaryResponse,
@@ -95,11 +94,16 @@ def get_batch_errors(batch_id: str) -> list[dict[str, object]]:
     response_model=ImportResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def import_inventory(payload: ImportPayload) -> dict[str, object]:
+async def import_inventory(
+    file: UploadFile = File(...),
+    file_name: str | None = Form(None),
+) -> dict[str, object]:
     try:
-        return service.import_csv(
-            file_name=payload.file_name,
-            csv_content=payload.csv_content,
+        content = await file.read()
+        return service.import_file(
+            file_name=file_name or file.filename or "",
+            file_bytes=content,
+            content_type=file.content_type,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

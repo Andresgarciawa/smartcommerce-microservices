@@ -1,7 +1,6 @@
 import type {
   ImportBatch,
   ImportErrorRow,
-  ImportPayload,
   ImportResponse,
   InventoryItem,
   InventorySummary,
@@ -45,11 +44,30 @@ export function getBatchErrors(batchId: string) {
   return request<ImportErrorRow[]>(`/inventory/batches/${batchId}/errors`)
 }
 
-export function importInventoryCsv(payload: ImportPayload) {
-  return request<ImportResponse>('/inventory/imports', {
+export async function importInventoryCsv(fileName: string, csvContent: string) {
+  const formData = new FormData()
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' })
+  formData.append('file', blob, fileName)
+  formData.append('file_name', fileName)
+
+  const response = await fetch(`${API_BASE}/inventory/imports`, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: formData,
   })
+
+  const data = (await response.json().catch(() => null)) as
+    | { detail?: string }
+    | ImportResponse
+    | null
+
+  if (!response.ok) {
+    throw new Error(
+      (data as { detail?: string } | null)?.detail ??
+        'La solicitud al Inventory Service fallo.',
+    )
+  }
+
+  return data as ImportResponse
 }
 
 export function deleteInventoryItem(itemId: string) {

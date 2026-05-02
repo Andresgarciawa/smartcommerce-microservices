@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+import openpyxl
 from .catalog_client import CatalogClient
 from .database import get_connection, initialize_database
 
@@ -77,6 +78,58 @@ class InventoryService:
             "batch": self.get_batch(batch_id),
             "errors": self.get_batch_errors(batch_id),
         }
+
+    def import_file(
+        self,
+        file_name: str,
+        file_bytes: bytes,
+        content_type: str | None = None,
+    ) -> dict[str, Any]:
+        if not file_name.strip():
+            raise ValueError("file_name es obligatorio.")
+
+        if not file_bytes:
+            raise ValueError("El archivo no puede estar vacío.")
+
+        extension = os.path.splitext(file_name)[1].lower()
+        if extension in {".csv", ".txt"} or (
+            not extension and content_type and content_type.startswith("text/")
+        ):
+            csv_content = self._decode_csv_bytes(file_bytes)
+        elif extension in {".xlsx"} or (
+            not extension
+            and content_type
+            and "spreadsheetml" in content_type
+        ):
+            csv_content = self._excel_to_csv(file_bytes)
+        else:
+            raise ValueError("Formato de archivo no soportado. Use CSV o XLSX.")
+
+        return self.import_csv(file_name=file_name, csv_content=csv_content)
+
+    @staticmethod
+    def _decode_csv_bytes(file_bytes: bytes) -> str:
+        try:
+            return file_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            return file_bytes.decode("latin-1")
+
+    @staticmethod
+    def _excel_to_csv(file_bytes: bytes) -> str:
+        workbook = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        sheet = workbook.active
+        rows = list(sheet.iter_rows(values_only=True))
+        if not rows:
+            raise ValueError("El archivo Excel está vacío.")
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([str(cell).strip() if cell is not None else "" for cell in rows[0]])
+
+        for row in rows[1:]:
+            writer.writerow(["" if cell is None else str(cell) for cell in row])
+
+        return output.getvalue()
 
     def list_items(
         self,
@@ -316,11 +369,11 @@ class InventoryService:
         }
 
     def delete_item(self, item_id: str) -> None:
-        query = "DELETE FROM inventory_items WHERE id = %s"
+        query = "DELETE FROM inventory_items WHERE id = %s OR external_code = %s"
 
         with get_connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(query, (item_id,))
+                cursor.execute(query, (item_id, item_id))
                 deleted = cursor.rowcount
             connection.commit()
 

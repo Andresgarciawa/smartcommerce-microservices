@@ -123,6 +123,22 @@ class InventoryServiceTests(unittest.TestCase):
         self.assertEqual(self.service.get_summary()["total_items"], 0)
         self.assertEqual(self.service.list_items(), [])
 
+    def test_delete_item_accepts_external_code(self) -> None:
+        csv_content = textwrap.dedent(
+            """
+            external_code,book_reference,quantity_available,quantity_reserved,condition,defects,observations
+            {prefix}-001,BOOK-001,6,1,used_good,,Ingreso inicial
+            """
+        ).strip().format(prefix=self.prefix)
+
+        self.service.import_csv("inventory.csv", csv_content)
+        external_code = self.service.list_items()[0]["external_code"]
+
+        self.service.delete_item(external_code)
+
+        self.assertEqual(self.service.get_summary()["total_items"], 0)
+        self.assertEqual(self.service.list_items(), [])
+
     def test_delete_batch_removes_items_and_errors(self) -> None:
         csv_content = textwrap.dedent(
             """

@@ -1,0 +1,30 @@
+﻿{
+    "created_at_utc":  "2026-05-01T08:32:11.2339174Z",
+    "category":  {
+                     "id":  "d984d6c2-2729-44c9-b103-3a97d7adee63",
+                     "name":  "Pricing QA",
+                     "description":  "Category for pricing integration tests",
+                     "created_at":  "2026-05-01T08:32:11.368490+00:00"
+                 },
+    "books":  [
+                  {
+                      "title":  "Clean Architecture",
+                      "key":  "BOOK_ID_1",
+                      "id":  "82eda775-0248-4011-98e8-a309e40df38a"
+                  },
+                  {
+                      "title":  "Domain-Driven Design",
+                      "key":  "BOOK_ID_2",
+                      "id":  "feb02aef-d842-4f62-a5f0-2538aacca2a8"
+                  },
+                  {
+                      "title":  "Refactoring",
+                      "key":  "BOOK_ID_3",
+                      "id":  "80fdb2e0-aca5-4250-98bf-39de156b1a5f"
+                  }
+              ],
+    "inventory_import":  {
+                             "detail":  "Inventory import request returned null response.",
+                             "status":  "failed"
+                         }
+}
