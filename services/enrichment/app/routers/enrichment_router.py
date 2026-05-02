@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.domain.models import EnrichmentRequest, EnrichmentResult
 from app.application import enrich_book
 from app.infraestructure.database import get_db
+from app.infraestructure.catalog_client import notify_catalog_enrichment
 import json
 
 # Ajusta estas rutas de importación según tu estructura de carpetas real
@@ -14,16 +15,27 @@ from app.infraestructure.external_apis import (
     fetch_from_open_library, 
     call_normalization_service
 )
+from app.infraestructure.catalog_client import notify_catalog_enrichment
 
 router = APIRouter(prefix="/enrichment", tags=["Enrichment"])
 
 @router.post("/process", response_model=EnrichmentResult)
-async def process_enrichment(request: EnrichmentRequest, db: Session = Depends(get_db)):
+async def process_enrichment(
+    request: EnrichmentRequest, 
+    book_id: str = None, 
+    db: Session = Depends(get_db)
+):
     """
     Recibe una solicitud de enriquecimiento y devuelve el resultado.
     Sprint 1/2: Se integra con APIs externas según configuración Dev8 y guarda en DB.
     """
-    return await enrich_book.run(request, db)
+    result = await enrich_book.run(request, db)
+    
+    if book_id:
+        # Notificamos al catálogo con los datos normalizados
+        await notify_catalog_enrichment(book_id, result.model_dump())
+        
+    return result
 
 @router.post("/enrich/{isbn}")
 async def enrich_book_by_isbn(isbn: str, db: Session = Depends(get_db)):
@@ -53,7 +65,7 @@ async def enrich_book_by_isbn(isbn: str, db: Session = Depends(get_db)):
         normalized_title=norm.get("title") or raw_data.get("title"),
         normalized_author=norm.get("author") or raw_data.get("author"),
         normalized_publisher=norm.get("publisher") or raw_data.get("publisher"),
-        normalized_year=norm.get("year") or 0,
+        normalized_year=norm.get("year") or (int(raw_data.get("published_date")[:4]) if raw_data.get("published_date") and raw_data.get("published_date")[:4].isdigit() else 0),
         normalized_description=norm.get("description") or raw_data.get("description"),
         cover_url=norm.get("cover_url") or raw_data.get("cover_url")
     )

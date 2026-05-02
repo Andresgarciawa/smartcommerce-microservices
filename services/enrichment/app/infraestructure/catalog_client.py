@@ -24,7 +24,7 @@ async def notify_catalog_enrichment(
 
     Retorna True si la actualización fue exitosa, False en caso contrario.
     """
-    url = f"{CATALOG_SERVICE_URL}/api/catalog/books/{book_id}/enrich"
+    url = f"{CATALOG_SERVICE_URL}/api/catalog/books/{book_id}/enrichment"
 
     payload = {
         "source": enrichment_result.get("source") or "UNKNOWN",
@@ -32,6 +32,7 @@ async def notify_catalog_enrichment(
         "cover_url": enrichment_result.get("cover_url") or None,
         "author": enrichment_result.get("normalized_author") or None,
         "publisher": enrichment_result.get("normalized_publisher") or None,
+        "publication_year": enrichment_result.get("normalized_year") or None,
     }
     # Eliminar claves con valor None para no sobreescribir datos existentes
     payload = {k: v for k, v in payload.items() if v is not None}
@@ -41,7 +42,7 @@ async def notify_catalog_enrichment(
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(url, json=payload)
+            response = await client.patch(url, json=payload)
             if response.status_code == 200:
                 logger.info(f"Catalog actualizado exitosamente para book_id={book_id}")
                 return True

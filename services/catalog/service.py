@@ -243,6 +243,7 @@ class CatalogService:
             enrichment_score = {self.placeholder},
             last_enriched_at = {self.placeholder},
             enriched_flag = {self.placeholder},
+            publication_year = {self.placeholder},
             updated_at = {self.placeholder}
         WHERE id = {self.placeholder}
         """
@@ -266,6 +267,7 @@ class CatalogService:
                     merged["enrichment_score"],
                     merged["last_enriched_at"],
                     self.database.bool_value(merged["enriched_flag"]),
+                    merged["publication_year"],
                     merged["updated_at"],
                     book_id,
                 ),
@@ -426,6 +428,7 @@ class CatalogService:
         enriched_flag = bool(
             payload.get("enriched_flag", current["enriched_flag"] or enrichment_status == "completed")
         )
+        publication_year = prefer_non_empty(current["publication_year"], payload.get("publication_year"))
 
         return {
             "description": description,
@@ -443,6 +446,7 @@ class CatalogService:
             "enrichment_score": enrichment_score,
             "last_enriched_at": str(last_enriched_at).strip(),
             "enriched_flag": enriched_flag,
+            "publication_year": publication_year,
             "updated_at": updated_at,
         }
 

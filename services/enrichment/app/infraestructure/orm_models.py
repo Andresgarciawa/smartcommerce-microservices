@@ -15,7 +15,7 @@ class EnrichmentRequestORM(Base):
 class EnrichmentResultORM(Base):
     __tablename__ = "enrichment_results"
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(String, primary_key=True, index=True)
     isbn = Column(String, index=True)
     request_id = Column(String, ForeignKey("enrichment_requests.id"), nullable=True) # Lo hacemos opcional por ahora
     source = Column(String)
