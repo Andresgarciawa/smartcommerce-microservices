@@ -1,12 +1,13 @@
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, JSON, Integer
 from .database import Base
 import datetime
+import uuid
 
 
 class EnrichmentRequestORM(Base):
     __tablename__ = "enrichment_requests"
 
-    id = Column(String, primary_key=True, index=True)  # UUID
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))  # UUID
     book_reference = Column(String, nullable=False, index=True)
     requested_at = Column(DateTime, default=datetime.datetime.utcnow)
     source_used = Column(String)
@@ -15,7 +16,7 @@ class EnrichmentRequestORM(Base):
 class EnrichmentResultORM(Base):
     __tablename__ = "enrichment_results"
     
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     isbn = Column(String, index=True)
     request_id = Column(String, ForeignKey("enrichment_requests.id"), nullable=True) # Lo hacemos opcional por ahora
     source = Column(String)

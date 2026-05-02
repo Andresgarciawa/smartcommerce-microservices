@@ -14,6 +14,15 @@ app = FastAPI(
 
 app.include_router(enrichment_router.router)
 
+
+@app.get("/health")
+async def health():
+    return {
+        "service": "AI Enrichment Service",
+        "status": "ok",
+        "version": 1,
+    }
+
 @app.get("/")
 async def root():
     return {

@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -27,6 +29,15 @@ def _build_catalog_ready_payload(result: EnrichmentResultORM) -> dict[str, objec
         "source_verification": result.source,
         "enrichment_id": result.id,
     }
+
+
+def _get_latest_result_by_isbn(db: Session, isbn: str) -> EnrichmentResultORM | None:
+    return (
+        db.query(EnrichmentResultORM)
+        .filter(EnrichmentResultORM.isbn == isbn)
+        .order_by(EnrichmentResultORM.id.desc())
+        .first()
+    )
 
 
 @router.post("/process", response_model=EnrichmentResult)
@@ -63,6 +74,7 @@ async def enrich_book_by_isbn(isbn: str, db: Session = Depends(get_db)):
     norm = normalized_data if normalized_data else {}
 
     new_result = EnrichmentResultORM(
+        id=str(uuid.uuid4()),
         isbn=isbn,
         source=raw_data.get("source"),
         metadata_json=raw_data,
@@ -91,6 +103,38 @@ async def enrich_book_by_isbn(isbn: str, db: Session = Depends(get_db)):
     return _build_catalog_ready_payload(new_result)
 
 
+@router.get("/isbn/{isbn}", response_model=CatalogReadyEnrichment)
+async def get_enriched_book_info_by_isbn(isbn: str, db: Session = Depends(get_db)):
+    """
+    Consulta el ultimo enriquecimiento guardado para un ISBN.
+    """
+    result = _get_latest_result_by_isbn(db, isbn)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No existe informacion enriquecida para ese ISBN. Usa POST /enrichment/enrich/{isbn} primero.",
+        )
+    return _build_catalog_ready_payload(result)
+
+
+@router.get("/result/{enrichment_id}", response_model=CatalogReadyEnrichment)
+async def get_enriched_book_info_by_result_id(enrichment_id: str, db: Session = Depends(get_db)):
+    """
+    Consulta un resultado de enriquecimiento puntual por su id.
+    """
+    result = (
+        db.query(EnrichmentResultORM)
+        .filter(EnrichmentResultORM.id == enrichment_id)
+        .first()
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No existe informacion enriquecida para ese enrichment_id.",
+        )
+    return _build_catalog_ready_payload(result)
+
+
 @router.get("/{identifier}", response_model=CatalogReadyEnrichment)
 async def get_enriched_book_info(identifier: str, db: Session = Depends(get_db)):
     """
@@ -106,12 +150,7 @@ async def get_enriched_book_info(identifier: str, db: Session = Depends(get_db))
     )
 
     if result is None:
-        result = (
-            db.query(EnrichmentResultORM)
-            .filter(EnrichmentResultORM.isbn == identifier)
-            .order_by(EnrichmentResultORM.id.desc())
-            .first()
-        )
+        result = _get_latest_result_by_isbn(db, identifier)
 
     if result is None:
         raise HTTPException(
