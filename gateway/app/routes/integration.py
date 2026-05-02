@@ -45,3 +45,13 @@ async def integration_health():
         "status": overall_status,
         "services": services,
     }
+
+
+@router.post("/books/{book_id}/full-sync")
+async def full_book_sync(book_id: str):
+    result = await catalog_client.post(f"/api/catalog/books/{book_id}/integrate")
+    return {
+        "status": "ok",
+        "book_id": book_id,
+        "integration": result,
+    }

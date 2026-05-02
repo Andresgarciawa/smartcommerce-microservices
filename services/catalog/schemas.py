@@ -78,6 +78,21 @@ class BookEnrichmentPayload(BaseModel):
     enrichment_score: float = 0
     last_enriched_at: str = ""
     enriched_flag: bool = True
+    publication_year: int | None = None
+
+
+class BookUpdate(BaseModel):
+    suggested_price: float | None = None
+    currency: str | None = None
+    price_source: str | None = None
+    price_updated_at: str | None = None
+    published_flag: bool | None = None
+
+
+class IntegrationStepResponse(BaseModel):
+    step: str
+    status: str
+    detail: str
 
 
 class BookResponse(BaseModel):
@@ -106,12 +121,21 @@ class BookResponse(BaseModel):
     enrichment_status: str
     enrichment_score: float
     last_enriched_at: str
+    suggested_price: float | None
+    currency: str
+    price_source: str
+    price_updated_at: str
     enriched_flag: bool
     published_flag: bool
     quantity_available_total: int
     quantity_reserved_total: int
     inventory_records: int
     inventory_sync: bool
+
+
+class BookIntegrationResponse(BaseModel):
+    book: BookResponse
+    steps: list[IntegrationStepResponse]
 
 
 class CatalogSummaryResponse(BaseModel):

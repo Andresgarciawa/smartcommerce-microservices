@@ -21,3 +21,15 @@ class EnrichmentResult(BaseModel):
     cover_url: Optional[str] = None
     metadata_json: Optional[dict[str, Any]] = None
 
+
+class CatalogReadyEnrichment(BaseModel):
+    isbn: str
+    title: Optional[str] = None
+    author: Optional[str] = None
+    publisher: Optional[str] = None
+    year: Optional[int] = None
+    description: Optional[str] = None
+    cover_url: Optional[str] = None
+    source_verification: Optional[str] = None
+    enrichment_id: Optional[str] = None
+

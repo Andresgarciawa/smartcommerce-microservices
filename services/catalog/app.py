@@ -6,7 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from .schemas import (
     BookCreate,
     BookEnrichmentPayload,
+    BookIntegrationResponse,
     BookResponse,
+    BookUpdate,
     CatalogSummaryResponse,
     CategoryCreate,
     CategoryResponse,
@@ -94,10 +96,26 @@ def create_book(payload: BookCreate) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+@app.put("/api/catalog/books/{book_id}", response_model=BookResponse)
+def update_book(book_id: str, payload: BookUpdate) -> dict[str, object]:
+    try:
+        return service.update_book(book_id, payload.model_dump(exclude_unset=True))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @app.patch("/api/catalog/books/{book_id}/enrichment", response_model=BookResponse)
 def apply_enrichment(book_id: str, payload: BookEnrichmentPayload) -> dict[str, object]:
     try:
         return service.apply_enrichment(book_id, payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/catalog/books/{book_id}/integrate", response_model=BookIntegrationResponse)
+def integrate_book(book_id: str) -> dict[str, object]:
+    try:
+        return service.integrate_book(book_id)
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

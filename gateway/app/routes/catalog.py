@@ -1,7 +1,7 @@
 import os
 
 import httpx
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException
 
 from clients.http_client import ServiceClient
 from security import AuthRequired
@@ -57,22 +57,14 @@ async def delete_category(category_id: str):
 async def list_books(
     q: str | None = None,
     category_id: str | None = None,
-    published: bool | None = None,
-    enriched: bool | None = None,
-    year_from: int | None = None,
-    year_to: int | None = None,
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    published_only: bool | None = None,
+    enriched_only: bool | None = None,
 ):
     params = {
         "q": q,
         "category_id": category_id,
-        "published": published,
-        "enriched": enriched,
-        "year_from": year_from,
-        "year_to": year_to,
-        "limit": limit,
-        "offset": offset,
+        "published_only": published_only,
+        "enriched_only": enriched_only,
     }
     filtered_params = {key: value for key, value in params.items() if value is not None}
     try:
@@ -105,18 +97,22 @@ async def update_book(book_id: str, payload: dict = Body(...)):
         raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
 
 
-@router.post("/books/{book_id}/publish")
-async def publish_book(book_id: str):
+@router.patch("/books/{book_id}/enrichment")
+async def enrich_book(book_id: str, payload: dict = Body(...)):
     try:
-        return await catalog_client.post(f"/api/catalog/books/{book_id}/publish")
+        return await catalog_client._request(
+            "PATCH",
+            f"/api/catalog/books/{book_id}/enrichment",
+            json=payload,
+        )
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
 
 
-@router.post("/books/{book_id}/enrich")
-async def enrich_book(book_id: str, payload: dict = Body(...)):
+@router.post("/books/{book_id}/integrate")
+async def integrate_book(book_id: str):
     try:
-        return await catalog_client.post(f"/api/catalog/books/{book_id}/enrich", json=payload)
+        return await catalog_client.post(f"/api/catalog/books/{book_id}/integrate")
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
 

@@ -15,7 +15,7 @@ services:
   inventory-service:
     build:
       context: .
-      dockerfile: services/catalog/Dockerfile
+      dockerfile: services/inventory/Dockerfile
     ports:
       - '8010:8000'
     environment:
@@ -39,6 +39,8 @@ services:
       - '8004:8001'
     environment:
       INVENTORY_SERVICE_URL: http://inventory-service:8000
+      ENRICHMENT_SERVICE_URL: http://enrichment-service:8000
+      PRICING_SERVICE_URL: http://pricing:8000
       DB_HOST: catalog-db
       DB_PORT: 5432
       DB_NAME: catalog_db
@@ -189,9 +191,15 @@ services:
       context: ./services/auth
     ports:
       - '8006:8000'
-    ## CCgonzalez: se comenta el env_file para funcionamiento normal
-    ##env_file:
-      ##- ./.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
+      SMTP_SERVER: ${SMTP_SERVER}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
     depends_on:
       auth-db:
         condition: service_healthy

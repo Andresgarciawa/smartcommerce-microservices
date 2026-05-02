@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .database import Database, build_database
+from .enrichment_client import EnrichmentClient
 from .inventory_client import InventoryClient
+from .pricing_client import PricingClient
 
 
 BOOK_SELECT = """
@@ -19,6 +21,7 @@ SELECT books.id, books.title, books.subtitle, books.author,
        books.published_date, books.authors_extra, books.categories_external,
        books.thumbnail_url, books.source_provider, books.source_reference,
        books.enrichment_status, books.enrichment_score, books.last_enriched_at,
+       books.suggested_price, books.currency, books.price_source, books.price_updated_at,
        books.enriched_flag, books.published_flag
 FROM books
 JOIN categories ON categories.id = books.category_id
@@ -34,6 +37,8 @@ class CatalogService:
         self,
         sqlite_path: str | None = None,
         inventory_client: InventoryClient | None = None,
+        enrichment_client: EnrichmentClient | None = None,
+        pricing_client: PricingClient | None = None,
         database: Database | None = None,
     ) -> None:
         self.database = database or build_database(sqlite_path)
@@ -41,6 +46,12 @@ class CatalogService:
         self.placeholder = self.database.placeholder()
         self.inventory_client = inventory_client or InventoryClient(
             os.getenv("INVENTORY_SERVICE_URL", "http://127.0.0.1:8000")
+        )
+        self.enrichment_client = enrichment_client or EnrichmentClient(
+            os.getenv("ENRICHMENT_SERVICE_URL", "http://127.0.0.1:8005")
+        )
+        self.pricing_client = pricing_client or PricingClient(
+            os.getenv("PRICING_SERVICE_URL", "http://127.0.0.1:8003")
         )
 
     def create_category(self, name: str, description: str = "") -> dict[str, Any]:
@@ -109,9 +120,10 @@ class CatalogService:
             summary, language, page_count, published_date, authors_extra,
             categories_external, thumbnail_url, source_provider,
             source_reference, enrichment_status, enrichment_score,
-            last_enriched_at, enriched_flag, published_flag, created_at, updated_at
+            last_enriched_at, suggested_price, currency, price_source,
+            price_updated_at, enriched_flag, published_flag, created_at, updated_at
         ) VALUES (
-            {", ".join([self.placeholder] * 28)}
+            {", ".join([self.placeholder] * 32)}
         )
         """
         with self.database.connection() as connection:
@@ -143,6 +155,10 @@ class CatalogService:
                     book["enrichment_status"],
                     book["enrichment_score"],
                     book["last_enriched_at"],
+                    book["suggested_price"],
+                    book["currency"],
+                    book["price_source"],
+                    book["price_updated_at"],
                     self.database.bool_value(book["enriched_flag"]),
                     self.database.bool_value(book["published_flag"]),
                     book["created_at"],
@@ -281,6 +297,120 @@ class CatalogService:
             connection.commit()
         return self.get_book(book_id)
 
+    def update_book(self, book_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        current = self.get_book(book_id)
+        suggested_price = current.get("suggested_price")
+        if "suggested_price" in payload and payload["suggested_price"] is not None:
+            try:
+                suggested_price = float(payload["suggested_price"])
+            except (TypeError, ValueError) as error:
+                raise ValueError("suggested_price debe ser numerico.") from error
+
+        currency = str(payload.get("currency", current.get("currency") or "COP")).strip() or "COP"
+        price_source = str(payload.get("price_source", current.get("price_source") or "")).strip()
+        price_updated_at = str(
+            payload.get("price_updated_at")
+            or current.get("price_updated_at")
+            or utc_now_iso()
+        ).strip()
+        published_flag = bool(payload.get("published_flag", current.get("published_flag", False)))
+
+        query = f"""
+        UPDATE books
+        SET suggested_price = {self.placeholder},
+            currency = {self.placeholder},
+            price_source = {self.placeholder},
+            price_updated_at = {self.placeholder},
+            published_flag = {self.placeholder},
+            updated_at = {self.placeholder}
+        WHERE id = {self.placeholder}
+        """
+        with self.database.connection() as connection:
+            cursor = connection.cursor()
+            cursor.execute(
+                query,
+                (
+                    suggested_price,
+                    currency,
+                    price_source,
+                    price_updated_at,
+                    self.database.bool_value(published_flag),
+                    utc_now_iso(),
+                    book_id,
+                ),
+            )
+            connection.commit()
+        return self.get_book(book_id)
+
+    def integrate_book(self, book_id: str) -> dict[str, Any]:
+        book = self.get_book(book_id)
+        steps: list[dict[str, str]] = []
+
+        isbn = str(book.get("isbn", "")).strip()
+        if isbn:
+            enrichment_result = self.enrichment_client.enrich_by_isbn(isbn)
+            if enrichment_result.reachable and enrichment_result.found and enrichment_result.payload:
+                payload = {
+                    "title": enrichment_result.payload.get("title", ""),
+                    "author": enrichment_result.payload.get("author", ""),
+                    "publisher": enrichment_result.payload.get("publisher", ""),
+                    "description": enrichment_result.payload.get("description", ""),
+                    "cover_url": enrichment_result.payload.get("cover_url", ""),
+                    "published_date": enrichment_result.payload.get("published_date", ""),
+                    "source_provider": enrichment_result.payload.get("source_verification", ""),
+                    "source_reference": isbn,
+                    "enrichment_status": "completed",
+                    "enriched_flag": True,
+                }
+                year = enrichment_result.payload.get("year")
+                if year:
+                    payload["publication_year"] = year
+                book = self.apply_enrichment(book_id, payload)
+                steps.append(
+                    {
+                        "step": "enrichment",
+                        "status": "completed",
+                        "detail": "Catalogo enriquecido desde Enrichment Service.",
+                    }
+                )
+            else:
+                steps.append(
+                    {
+                        "step": "enrichment",
+                        "status": "skipped" if enrichment_result.reachable else "degraded",
+                        "detail": enrichment_result.error_message or "No se aplico enriquecimiento.",
+                    }
+                )
+        else:
+            steps.append(
+                {
+                    "step": "enrichment",
+                    "status": "skipped",
+                    "detail": "El libro no tiene ISBN para consultar Enrichment Service.",
+                }
+            )
+
+        pricing_result = self.pricing_client.calculate_price(book_id)
+        if pricing_result.reachable and pricing_result.calculated:
+            book = self.get_book(book_id)
+            steps.append(
+                {
+                    "step": "pricing",
+                    "status": "completed",
+                    "detail": "Precio sugerido calculado por Pricing Service y sincronizado en Catalog.",
+                }
+            )
+        else:
+            steps.append(
+                {
+                    "step": "pricing",
+                    "status": "degraded",
+                    "detail": pricing_result.error_message or "No se pudo calcular el precio sugerido.",
+                }
+            )
+
+        return {"book": book, "steps": steps}
+
     def get_summary(self) -> dict[str, int]:
         with self.database.connection() as connection:
             cursor = connection.cursor()
@@ -386,6 +516,14 @@ class CatalogService:
             "enrichment_status": str(payload.get("enrichment_status", "pending")).strip() or "pending",
             "enrichment_score": float(payload.get("enrichment_score", 0) or 0),
             "last_enriched_at": str(payload.get("last_enriched_at", "")).strip(),
+            "suggested_price": (
+                float(payload.get("suggested_price", 0) or 0)
+                if payload.get("suggested_price") not in (None, "")
+                else None
+            ),
+            "currency": str(payload.get("currency", "COP")).strip() or "COP",
+            "price_source": str(payload.get("price_source", "")).strip(),
+            "price_updated_at": str(payload.get("price_updated_at", "")).strip(),
             "enriched_flag": bool(payload.get("enriched_flag", False)),
             "published_flag": bool(payload.get("published_flag", False)),
             "created_at": timestamp,
@@ -486,6 +624,10 @@ class CatalogService:
         row["published_flag"] = bool(row["published_flag"])
         row["page_count"] = int(row["page_count"] or 0)
         row["enrichment_score"] = float(row["enrichment_score"] or 0)
+        row["suggested_price"] = float(row["suggested_price"]) if row.get("suggested_price") is not None else None
+        row["currency"] = str(row.get("currency") or "COP")
+        row["price_source"] = str(row.get("price_source") or "")
+        row["price_updated_at"] = str(row.get("price_updated_at") or "")
         row["authors_extra"] = self._loads_json_list(row.get("authors_extra"))
         row["categories_external"] = self._loads_json_list(row.get("categories_external"))
         return row
